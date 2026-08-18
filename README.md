@@ -126,12 +126,26 @@ were fixed by this testing, all still relevant if you're changing this code:
 - Access points default to port 4070, which the emulator's (and plenty of real) networks block
   outbound; `prefer_firewall_friendly_ports: true` is now always set in the generated config.
 
-**Known open item**: in this same emulator session, the foreground service has gone quiet after
-a few minutes with no crash, no logged exit, and no kill event in `logcat` — `ps` simply shows
-the daemon and the service both gone. Given the emulator flagged insufficient host memory at
-boot (falling back to software GL rendering), this looks environmental rather than a code path
-this app controls, but it's unconfirmed. If you hit it on real hardware, the log console and
-`adb logcat` are the first places to look — please file what you find.
+**Known open item — zeroconf fails to start**: the daemon now starts, binds its API server, and
+resolves Spotify's real access-point/dealer/spclient infrastructure, but exits with `failed
+initializing zeroconf: failed registering zeroconf service: Could not determine host IP
+addresses`. Root cause, fully traced: `zeroconf/backend_builtin.go` calls
+`github.com/grandcat/zeroconf`'s `Register()`, which enumerates interfaces via Go's
+`net.Interfaces()` — on Linux/Android that's implemented purely via a `netlink_route_socket`,
+and Android's SELinux policy denies untrusted apps `bind` on that socket class (visible in
+`logcat` as `avc: denied { bind } ... tclass=netlink_route_socket`). With zero interfaces
+enumerated, `Register()` finds zero addresses and fails; the daemon treats that as fatal
+(`main.go`'s `log.Fatal`) and exits (code 1). This isn't specific to this Android build's
+sandboxing choices — Go's `net` package has no non-netlink fallback for interface enumeration
+on linux/android, with or without cgo.
+
+The library does offer an escape hatch, `zeroconf.RegisterProxy(..., ips []string, ifaces
+[]net.Interface)` ("skip the hostname/IP lookup and use the provided values") — but it still
+calls the same blocked enumeration for `ifaces` when that argument is empty, so a full fix
+needs a real (untested) interface, not just an IP: something that gets both an interface index
+and address without touching netlink. Fixing this needs a change in `zeroconf/` in
+SEKY443/go-librespot-termux itself, not just Android-side config, so it's left as a follow-up
+rather than something patched blind into the build script here.
 
 ## Licensing note
 
