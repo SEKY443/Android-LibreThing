@@ -49,7 +49,7 @@ android {
 }
 
 // AGP's bundled Kotlin compiler in this environment can only read metadata up to Kotlin
-// 2.3.0, but several transitive deps (coroutines/serialization/navigation/etc.) pull a
+// 2.3.0, but several transitive deps (coroutines/serialization/etc.) pull a
 // newer kotlin-stdlib by default. Pin it so the compiler can actually parse it.
 configurations.all {
     resolutionStrategy {
@@ -69,7 +69,6 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.activity.compose)
-    implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

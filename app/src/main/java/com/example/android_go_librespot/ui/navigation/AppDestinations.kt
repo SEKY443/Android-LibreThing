@@ -8,11 +8,10 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.ui.graphics.vector.ImageVector
 
 enum class AppDestination(
-    val route: String,
     val label: String,
     val selectedIcon: ImageVector,
     val unselectedIcon: ImageVector,
 ) {
-    DASHBOARD("dashboard", "Dashboard", Icons.Filled.Dashboard, Icons.Outlined.Dashboard),
-    SETTINGS("settings", "Settings", Icons.Filled.Settings, Icons.Outlined.Settings),
+    DASHBOARD("Dashboard", Icons.Filled.Dashboard, Icons.Outlined.Dashboard),
+    SETTINGS("Settings", Icons.Filled.Settings, Icons.Outlined.Settings),
 }
