@@ -4,8 +4,10 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
@@ -20,6 +22,7 @@ import com.example.android_go_librespot.service.model.LogEntry
 import com.example.android_go_librespot.service.model.LogLevel
 import com.example.android_go_librespot.service.model.TrackInfo
 import com.example.android_go_librespot.util.GoLibrespotPaths
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
@@ -37,6 +40,7 @@ class SpotifyConnectService : LifecycleService() {
         private const val CHANNEL_ID = "spotify_connect_service"
         private const val NOTIFICATION_ID = 1001
         const val ACTION_STOP = "com.example.android_go_librespot.action.STOP"
+        private val AUTH_URL_REGEX = Regex("""https://accounts\.spotify\.com/authorize\S*""")
 
         fun start(context: Context) {
             ContextCompat.startForegroundService(context, Intent(context, SpotifyConnectService::class.java))
@@ -52,6 +56,7 @@ class SpotifyConnectService : LifecycleService() {
     private var pipeAudioPlayer: PipeAudioPlayer? = null
     private var apiClient: GoLibrespotApiClient? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private val authUrlOpened = AtomicBoolean(false)
 
     override fun onCreate() {
         super.onCreate()
@@ -94,7 +99,7 @@ class SpotifyConnectService : LifecycleService() {
 
             val controller = GoProcessController(
                 context = applicationContext,
-                onLog = SpotifyConnectServiceState::appendLog,
+                onLog = ::handleDaemonLog,
                 onExit = ::handleProcessExit,
             )
             processController = controller
@@ -123,6 +128,25 @@ class SpotifyConnectService : LifecycleService() {
             }
             if (attempt == 0) SpotifyConnectServiceState.setConnectionState(ConnectionState.Discoverable)
             kotlinx.coroutines.delay(1000)
+        }
+    }
+
+    /**
+     * Interactive-login mode (session.go's runInteractive) logs a one-time
+     * "to complete authentication visit the following link: https://accounts.spotify.com/..."
+     * line with no other way to surface that URL to the user. Auto-launching it removes the
+     * need to hunt for it in the log console and copy it out by hand.
+     */
+    private fun handleDaemonLog(entry: LogEntry) {
+        SpotifyConnectServiceState.appendLog(entry)
+
+        val url = AUTH_URL_REGEX.find(entry.message)?.value ?: return
+        if (!authUrlOpened.compareAndSet(false, true)) return
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            applicationContext.startActivity(intent)
+        } catch (e: ActivityNotFoundException) {
+            SpotifyConnectServiceState.appendLog(LogEntry(LogLevel.WARN, "No browser available to open the login link: $e"))
         }
     }
 
