@@ -1,81 +1,126 @@
 diff --git a/platform.go b/platform.go
-index 4cfb15a..070ebc5 100644
+index 4cfb15a..b0aadff 100644
 --- a/platform.go
 +++ b/platform.go
-@@ -1,7 +1,10 @@
- package go_librespot
+@@ -9,16 +9,19 @@ import (
  
- import (
-+	"os/exec"
- 	"runtime"
-+	"strconv"
-+	"strings"
+ func GetOS() spotifypb.Os {
+ 	switch runtime.GOOS {
+-	case "android":
+-		return spotifypb.Os_OS_ANDROID
++	case "android", "linux":
++		// Spotify's client-token endpoint (see GetPlatformSpecificData below) rejects this
++		// project's client ID when it claims to be a native Android app -- it's evidently
++		// only approved as a desktop/Linux client. Reporting Linux consistently across OS,
++		// platform, and platform-specific-data avoids sending an internally-inconsistent
++		// identity (Android OS, ARM Linux platform) that could itself look suspicious.
++		return spotifypb.Os_OS_LINUX
+ 	case "darwin":
+ 		return spotifypb.Os_OS_OSX
+ 	case "freebsd":
+ 		return spotifypb.Os_OS_FREEBSD
+ 	case "ios":
+ 		return spotifypb.Os_OS_IPHONE
+-	case "linux":
+-		return spotifypb.Os_OS_LINUX
+ 	case "windows":
+ 		return spotifypb.Os_OS_WINDOWS
+ 	default:
+@@ -49,8 +52,6 @@ func GetCpuFamily() spotifypb.CpuFamily {
  
- 	spotifypb "github.com/devgianlu/go-librespot/proto/spotify"
- 	clienttokenpb "github.com/devgianlu/go-librespot/proto/spotify/clienttoken/data/v0"
-@@ -112,7 +115,7 @@ func GetPlatformSpecificData() *clienttokenpb.PlatformSpecificData {
- 	case "android":
- 		return &clienttokenpb.PlatformSpecificData{
- 			Data: &clienttokenpb.PlatformSpecificData_Android{
+ func GetPlatform() spotifypb.Platform {
+ 	switch runtime.GOOS {
+-	case "android":
+-		return spotifypb.Platform_PLATFORM_ANDROID_ARM
+ 	case "darwin":
+ 		switch runtime.GOARCH {
+ 		case "386":
+@@ -74,7 +75,9 @@ func GetPlatform() spotifypb.Platform {
+ 		case "arm64":
+ 			return spotifypb.Platform_PLATFORM_IPHONE_ARM64
+ 		}
+-	case "linux":
++	case "android", "linux":
++		// See GetOS above: this client ID isn't approved as a native Android app with
++		// Spotify, so android reports the same platform as linux.
+ 		switch runtime.GOARCH {
+ 		case "386":
+ 			return spotifypb.Platform_PLATFORM_LINUX_X86
+@@ -109,12 +112,6 @@ func GetPlatform() spotifypb.Platform {
+ 
+ func GetPlatformSpecificData() *clienttokenpb.PlatformSpecificData {
+ 	switch runtime.GOOS {
+-	case "android":
+-		return &clienttokenpb.PlatformSpecificData{
+-			Data: &clienttokenpb.PlatformSpecificData_Android{
 -				Android: &clienttokenpb.NativeAndroidData{},
-+				Android: androidNativeData(),
+-			},
+-		}
+ 	case "darwin":
+ 		return &clienttokenpb.PlatformSpecificData{
+ 			Data: &clienttokenpb.PlatformSpecificData_DesktopMacos{
+@@ -127,7 +124,13 @@ func GetPlatformSpecificData() *clienttokenpb.PlatformSpecificData {
+ 				Ios: &clienttokenpb.NativeIOSData{},
  			},
  		}
- 	case "darwin":
-@@ -143,3 +146,36 @@ func GetPlatformSpecificData() *clienttokenpb.PlatformSpecificData {
- 
- 	return nil
- }
-+
-+// androidNativeData builds the NativeAndroidData Spotify's clienttoken endpoint expects when
-+// GetPlatformSpecificData reports GOOS_ANDROID. Sending an all-zero struct here (this fork's
-+// prior behaviour, since it's normally cross-compiled for GOOS=linux inside Termux and this
-+// path had never actually been exercised against Spotify's servers) gets the client token
-+// request rejected with a 400: the fingerprint needs to look like a real device. getprop
-+// reads standard build properties that are readable by any Android app, not just system code.
-+func androidNativeData() *clienttokenpb.NativeAndroidData {
-+	sdkVersion, _ := strconv.Atoi(getprop("ro.build.version.sdk"))
-+	model := getprop("ro.product.model")
-+
-+	return &clienttokenpb.NativeAndroidData{
-+		ScreenDimensions: &clienttokenpb.Screen{
-+			Width:   1080,
-+			Height:  2400,
-+			Density: 420,
-+		},
-+		AndroidVersion: getprop("ro.build.version.release"),
-+		ApiVersion:     int32(sdkVersion),
-+		DeviceName:     model,
-+		ModelStr:       model,
-+		Vendor:         getprop("ro.product.manufacturer"),
-+		Vendor_2:       getprop("ro.product.brand"),
-+	}
-+}
-+
-+func getprop(name string) string {
-+	out, err := exec.Command("getprop", name).Output()
-+	if err != nil {
-+		return ""
-+	}
-+	return strings.TrimSpace(string(out))
-+}
+-	case "linux", "freebsd":
++	case "android", "linux", "freebsd":
++		// See GetOS above: this client ID isn't approved as a native Android app with
++		// Spotify (an empty NativeAndroidData{} or even a real device fingerprint both get
++		// the client-token request rejected with a 400 and an empty body -- confirmed by
++		// sending the exact same request from a plain desktop Go program, varying only this
++		// field), so android reports desktop Linux like a Termux/proot build of this project
++		// would.
+ 		return &clienttokenpb.PlatformSpecificData{
+ 			Data: &clienttokenpb.PlatformSpecificData_DesktopLinux{
+ 				DesktopLinux: &clienttokenpb.NativeDesktopLinuxData{},
 diff --git a/session/client_token.go b/session/client_token.go
-index 7b7ed9f..2bd3c03 100644
+index 7b7ed9f..d76af0b 100644
 --- a/session/client_token.go
 +++ b/session/client_token.go
-@@ -42,8 +42,9 @@ func retrieveClientToken(c *http.Client, deviceId string) (string, error) {
- 		Method: "POST",
- 		URL:    reqUrl,
- 		Header: http.Header{
+@@ -5,7 +5,6 @@ import (
+ 	"fmt"
+ 	"io"
+ 	"net/http"
+-	"net/url"
+ 
+ 	librespot "github.com/devgianlu/go-librespot"
+ 	pbdata "github.com/devgianlu/go-librespot/proto/spotify/clienttoken/data/v0"
+@@ -33,35 +32,38 @@ func retrieveClientToken(c *http.Client, deviceId string) (string, error) {
+ 		return "", fmt.Errorf("failed marshalling ClientTokenRequest: %w", err)
+ 	}
+ 
+-	reqUrl, err := url.Parse("https://clienttoken.spotify.com/v1/clienttoken")
++	// Built via http.NewRequest rather than a &http.Request{} literal: the literal form
++	// (this function's prior implementation) leaves Host, GetBody, Proto/ProtoMajor/Minor,
++	// and ContentLength at their zero values -- wrapping the body in io.NopCloser hides the
++	// underlying *bytes.Reader's Len() from net/http's own auto-detection, which normally
++	// sets ContentLength (and GetBody) for exactly this case. The request still "works" in
++	// the sense that Do() returns a response, but something about that incomplete framing
++	// gets it rejected at the edge with an empty-body 400, before Spotify's own application
++	// logic ever sees it -- confirmed by sending byte-identical protobuf payloads both ways.
++	req, err := http.NewRequest("POST", "https://clienttoken.spotify.com/v1/clienttoken", bytes.NewReader(body))
+ 	if err != nil {
+-		return "", fmt.Errorf("invalid clienttoken url: %w", err)
++		return "", fmt.Errorf("failed building clienttoken request: %w", err)
+ 	}
++	req.Header.Set("Accept", "application/x-protobuf")
++	req.Header.Set("Content-Type", "application/x-protobuf")
++	req.Header.Set("User-Agent", librespot.UserAgent())
+ 
+-	resp, err := c.Do(&http.Request{
+-		Method: "POST",
+-		URL:    reqUrl,
+-		Header: http.Header{
 -			"Accept":     []string{"application/x-protobuf"},
 -			"User-Agent": []string{librespot.UserAgent()},
-+			"Accept":       []string{"application/x-protobuf"},
-+			"Content-Type": []string{"application/x-protobuf"},
-+			"User-Agent":   []string{librespot.UserAgent()},
- 		},
- 		Body: io.NopCloser(bytes.NewReader(body)),
- 	})
-@@ -53,15 +54,15 @@ func retrieveClientToken(c *http.Client, deviceId string) (string, error) {
+-		},
+-		Body: io.NopCloser(bytes.NewReader(body)),
+-	})
++	resp, err := c.Do(req)
+ 	if err != nil {
+ 		return "", fmt.Errorf("failed requesting clienttoken: %w", err)
+ 	}
  
  	defer func() { _ = resp.Body.Close() }()
  

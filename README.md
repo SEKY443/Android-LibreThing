@@ -129,41 +129,50 @@ were fixed by this testing, all still relevant if you're changing this code:
 - Access points default to port 4070, which the emulator's (and plenty of real) networks block
   outbound; `prefer_firewall_friendly_ports: true` is now always set in the generated config.
 
-**Known open item — zeroconf fails to start**: the daemon now starts, binds its API server, and
-resolves Spotify's real access-point/dealer/spclient infrastructure, but exits with `failed
-initializing zeroconf: failed registering zeroconf service: Could not determine host IP
-addresses`. Root cause, fully traced: `zeroconf/backend_builtin.go` calls
-`github.com/grandcat/zeroconf`'s `Register()`, which enumerates interfaces via Go's
+**Fixed — client-token request (`scripts/patches/android-clienttoken.patch`)**: `session.NewSession`
+unconditionally requests a Spotify client token before any credential flow can proceed, and on
+Android that request was failing with an opaque, empty-body `400`. Two independent real bugs,
+both patched:
+
+1. `session/client_token.go` built its `POST` as a raw `&http.Request{}` literal with the body
+   wrapped in `io.NopCloser`, which hides the underlying `*bytes.Reader`'s length from
+   `net/http`'s auto-detection. Left at its zero value, `ContentLength` defaults to 0, so Go's
+   `Transport` sent `Content-Length: 0` while still writing the real body afterward — a
+   malformed request that Spotify's edge rejects before its application logic ever sees it,
+   with no error body (which is exactly the symptom observed). Fixed by building the request
+   with `http.NewRequest` instead, which sets `ContentLength`, `Host`, `GetBody`, and
+   `Proto`/`ProtoMajor`/`ProtoMinor` correctly.
+2. `platform.go`'s `GetOS`/`GetPlatform`/`GetPlatformSpecificData` reported native Android
+   identity (`OS_ANDROID`, `PLATFORM_ANDROID_ARM`, `NativeAndroidData`) for `GOOS=android`.
+   Verified in isolation (same request, varying only this field, sent from a plain desktop Go
+   program) that Spotify's client-token endpoint accepts this project's client ID as a Linux
+   client but rejects it — still with an empty `400` — as a native Android one; it's evidently
+   only approved for desktop platforms. Fixed by reporting Linux identity for `GOOS=android`
+   throughout, the same as this fork's normal Termux/proot (`GOOS=linux`) build would.
+
+With both fixes, `credentials.type: interactive` (or `spotify_token`) now runs all the way
+through: the daemon obtains a real client token and prints a genuine
+`https://accounts.spotify.com/authorize?...` URL to log in with. Verified on-device, repeatably,
+across clean reinstalls.
+
+**Still open — zeroconf itself**: `credentials.type: zeroconf` (and `zeroconf_enabled: true`
+generally) remains broken, independent of the client-token fix above. `zeroconf/backend_builtin.go`
+calls `github.com/grandcat/zeroconf`'s `Register()`, which enumerates interfaces via Go's
 `net.Interfaces()` — on Linux/Android that's implemented purely via a `netlink_route_socket`,
 and Android's SELinux policy denies untrusted apps `bind` on that socket class (visible in
 `logcat` as `avc: denied { bind } ... tclass=netlink_route_socket`). With zero interfaces
 enumerated, `Register()` finds zero addresses and fails; the daemon treats that as fatal
-(`main.go`'s `log.Fatal`) and exits (code 1). This isn't specific to this Android build's
-sandboxing choices — Go's `net` package has no non-netlink fallback for interface enumeration
-on linux/android, with or without cgo.
+(`main.go`'s `log.Fatal`) and exits (code 1). Go's `net` package has no non-netlink fallback for
+interface enumeration on linux/android, with or without cgo, so this isn't fixable through
+config. The library does offer an escape hatch, `zeroconf.RegisterProxy(..., ips []string,
+ifaces []net.Interface)` ("skip the hostname/IP lookup and use the provided values") — but it
+still calls the same blocked enumeration for `ifaces` when that argument is empty, so a full fix
+needs a real interface (correct index, not just a fake one), which needs a change in
+`zeroconf/` itself.
 
-The library does offer an escape hatch, `zeroconf.RegisterProxy(..., ips []string, ifaces
-[]net.Interface)` ("skip the hostname/IP lookup and use the provided values") — but it still
-calls the same blocked enumeration for `ifaces` when that argument is empty, so a full fix
-needs a real (untested) interface, not just an IP: something that gets both an interface index
-and address without touching netlink. Fixing this needs a change in `zeroconf/` in
-SEKY443/go-librespot-termux itself, not just Android-side config, so it's left as a follow-up
-rather than something patched blind into the build script here.
-
-**Workaround, and the next thing it runs into**: in Settings, turning off **Zeroconf / mDNS
-discovery** and setting **Authentication** to **Interactive login** (or **Cached Spotify access
-token**) skips `zeroconf.Register()` entirely — confirmed on-device: no netlink denial, no
-crash there. But `session.NewSession` unconditionally requests a Spotify client token
-(`session/client_token.go`) before *any* credential flow can proceed, zeroconf included, and
-that request currently gets rejected with an opaque `400` and an empty response body. Two
-plausible causes were tried and patched in `scripts/patches/android-clienttoken.patch` (a
-real device fingerprint instead of an all-zero one; a missing `Content-Type` header on the
-protobuf body) — neither fixed it. An empty error body on a `400` usually means the rejection
-happens at an edge/gateway layer, before Spotify's own application logic ever sees the
-request, which points toward something this app can't diagnose further without a packet
-capture against a real device on the same network (TLS fingerprint of the cross-compiled
-binary, the emulator's outbound IP being flagged, etc.) — see that patch's notes for the full
-trace.
+**Practical workaround** until that's fixed: in Settings, turn off **Zeroconf / mDNS discovery**
+and set **Authentication** to **Interactive login** or **Cached Spotify access token** — skips
+`zeroconf.Register()` entirely, confirmed crash-free.
 
 ## Licensing note
 
