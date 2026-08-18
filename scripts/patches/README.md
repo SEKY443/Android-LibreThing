@@ -39,13 +39,41 @@ token and prints a genuine `https://accounts.spotify.com/authorize?...` URL. Ver
 on-device, repeatably, across clean reinstalls (fresh device ID each time, so it isn't
 something narrower like a flagged device ID either).
 
-**Zeroconf is a separate, still-open issue** and isn't fixed by anything here:
+## `android-zeroconf.patch`
+
 `zeroconf/backend_builtin.go` calls `github.com/grandcat/zeroconf`'s `Register()`, which
-enumerates network interfaces via Go's `net.Interfaces()` -- on Android that's netlink-only
-with no fallback, and SELinux denies untrusted apps `bind` on `netlink_route_socket` (visible
-in `adb logcat` as `avc: denied { bind } ... tclass=netlink_route_socket`). The app's own
-workaround (Settings: turn off Zeroconf discovery, set Authentication to Interactive or Cached
-Spotify access token) avoids the crash by skipping that code path entirely, but a real fix
-needs interface/address data sourced without netlink (a real interface index, not just a fake
-one, since `zeroconf.RegisterProxy`'s IP override still enumerates interfaces the same way when
-none are supplied) -- there's no config-only fix for this from the Android app side.
+enumerates network interfaces via Go's `net.Interfaces()` -- on Android that's netlink-only,
+and SELinux denies untrusted apps `bind` on `netlink_route_socket` (visible in `adb logcat` as
+`avc: denied { bind } ... tclass=netlink_route_socket`), so this always failed with "Could not
+determine host IP addresses". The obvious non-netlink fallbacks don't work either: reading
+`/sys/class/net` or `/proc/net/*` directly is *also* SELinux-denied for untrusted apps on
+Android (confirmed on-device, not just documentation) -- so there is no way for the daemon
+process itself to discover its network interface on Android, by any mechanism.
+
+The real fix sources this from the Android app instead. `ConnectivityManager` and
+`java.net.NetworkInterface` work fine in the exact same process/SELinux context (confirmed
+on-device: Pixel 6 emulator, API 37, both return real data -- `wlan0`, index 16, `10.0.2.16/24`
+-- where the Go-side equivalents fail), because they're serviced by `system_server` over Binder
+rather than a raw netlink/sysfs read from app userspace. `GoLibrespotConfigWriter.kt` resolves
+the active interface's name, OS index, and IPv4 address/prefix once per daemon launch and writes
+them into four new config fields (`android_net_iface_name`, `android_net_iface_index`,
+`android_net_ip`, `android_net_prefix_len`). On the daemon side:
+
+- `zeroconf/zeroconf.go`'s `NewZeroconf` takes an optional `*AndroidInterface`; when set, it
+  builds a `net.Interface{}` directly from the supplied index/name instead of calling
+  `net.InterfaceByName` (a second, separate netlink call site the interfaces-to-advertise path
+  would otherwise hit).
+- `zeroconf/backend_builtin.go`'s `Register` uses `zeroconf.RegisterProxy` (skips the
+  hostname/address lookup) whenever it already has an interface, using the supplied IP directly
+  or falling back to the UDP-connect trick (`outboundIPv4`, ordinary unprivileged socket use, no
+  netlink involved) if none was supplied.
+- `daemon/player_state.go`'s `deviceAddressMask` (the `device_address_mask` connect-state
+  metadata, a separate, non-fatal use of `net.Interfaces()`) also prefers the config-supplied
+  address/prefix when present, for the same reason.
+
+Verified on-device (Pixel 6 emulator, API 37): with Zeroconf discovery re-enabled in Settings,
+the daemon now logs `zeroconf server listening on port ...` / `advertising on network interface
+wlan0 (resolved by the Android app)` / `using built-in mDNS responder` and reaches
+`Discoverable`, and stayed there through a multi-minute soak test with no crash and no further
+netlink denials. The app's Settings workaround (Zeroconf off, Interactive/Cached-token
+authentication) is no longer necessary but is left in place as a working alternative.

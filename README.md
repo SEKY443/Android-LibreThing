@@ -155,24 +155,40 @@ through: the daemon obtains a real client token and prints a genuine
 `https://accounts.spotify.com/authorize?...` URL to log in with. Verified on-device, repeatably,
 across clean reinstalls.
 
-**Still open — zeroconf itself**: `credentials.type: zeroconf` (and `zeroconf_enabled: true`
-generally) remains broken, independent of the client-token fix above. `zeroconf/backend_builtin.go`
-calls `github.com/grandcat/zeroconf`'s `Register()`, which enumerates interfaces via Go's
-`net.Interfaces()` — on Linux/Android that's implemented purely via a `netlink_route_socket`,
-and Android's SELinux policy denies untrusted apps `bind` on that socket class (visible in
-`logcat` as `avc: denied { bind } ... tclass=netlink_route_socket`). With zero interfaces
-enumerated, `Register()` finds zero addresses and fails; the daemon treats that as fatal
-(`main.go`'s `log.Fatal`) and exits (code 1). Go's `net` package has no non-netlink fallback for
-interface enumeration on linux/android, with or without cgo, so this isn't fixable through
-config. The library does offer an escape hatch, `zeroconf.RegisterProxy(..., ips []string,
-ifaces []net.Interface)` ("skip the hostname/IP lookup and use the provided values") — but it
-still calls the same blocked enumeration for `ifaces` when that argument is empty, so a full fix
-needs a real interface (correct index, not just a fake one), which needs a change in
-`zeroconf/` itself.
+**Fixed — zeroconf itself (`scripts/patches/android-zeroconf.patch`)**: `credentials.type:
+zeroconf` (and `zeroconf_enabled: true` generally) used to fail unconditionally.
+`zeroconf/backend_builtin.go` calls `github.com/grandcat/zeroconf`'s `Register()`, which
+enumerates interfaces via Go's `net.Interfaces()` — on Linux/Android that's netlink-only, and
+Android's SELinux policy denies untrusted apps `bind` on `netlink_route_socket` (visible in
+`logcat` as `avc: denied { bind } ... tclass=netlink_route_socket`). The obvious non-netlink
+fallbacks don't work either — reading `/sys/class/net` or `/proc/net/*` directly is *also*
+SELinux-denied for untrusted apps (confirmed on-device) — so the daemon process itself has no
+way to discover its network interface on Android by any mechanism.
 
-**Practical workaround** until that's fixed: in Settings, turn off **Zeroconf / mDNS discovery**
-and set **Authentication** to **Interactive login** or **Cached Spotify access token** — skips
-`zeroconf.Register()` entirely, confirmed crash-free.
+The real fix sources this from the Android app instead: `ConnectivityManager` and
+`java.net.NetworkInterface` work fine in the exact same process/SELinux context (confirmed
+on-device — real interface name, index, and IPv4 address/prefix, where the Go-side equivalents
+fail), because they're serviced by `system_server` over Binder rather than a raw netlink/sysfs
+read from app userspace. `GoLibrespotConfigWriter` resolves this once per daemon launch and
+passes it into four new config fields; the daemon uses them to skip `net.Interfaces()` /
+`net.InterfaceByName()` entirely and register via `zeroconf.RegisterProxy` instead. See
+`scripts/patches/README.md`'s `android-zeroconf.patch` section for the full mechanism.
+
+Verified on-device, repeatably: with Zeroconf discovery enabled, the daemon reaches
+**Discoverable** and stays there — confirmed through a multi-minute soak test with no crash and
+no further SELinux denials once startup completes. The app's earlier workaround (Settings:
+Zeroconf off, Interactive/Cached-token authentication) still works and is left in place as an
+alternative, but is no longer necessary.
+
+**On the "random crashes" reported during earlier testing**: with zeroconf now actually working,
+a multi-minute on-device soak test (Zeroconf enabled, app in the foreground, `adb logcat`
+monitored continuously) showed the daemon process staying alive throughout, with no `FATAL
+EXCEPTION`, `Fatal signal`, ANR, or unexplained process death. Earlier apparent hangs/crashes are
+consistent with what was already root-caused before this fix: the daemon failing fast on the
+zeroconf fatal error above (`main.go`'s `log.Fatal`, process exit code 1) reads, from the outside,
+like the app going silent — no further log lines are the process actually being gone, not a hang.
+No separate, still-unexplained crash was found; if a new one turns up, capture the log console
+output (Dashboard's copy button) and the `adb logcat` output around the time of the drop.
 
 ## Licensing note
 

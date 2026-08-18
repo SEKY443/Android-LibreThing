@@ -1,0 +1,304 @@
+diff --git a/cmd/daemon/cli_config.go b/cmd/daemon/cli_config.go
+index e5efa6f..a45a122 100644
+--- a/cmd/daemon/cli_config.go
++++ b/cmd/daemon/cli_config.go
+@@ -66,6 +66,11 @@ type cliConfig struct {
+ 	FlacEnabled                   bool     `koanf:"flac_enabled"`
+ 	PreferFirewallFriendlyPorts   bool     `koanf:"prefer_firewall_friendly_ports"`
+ 
++	AndroidNetIfaceName  string `koanf:"android_net_iface_name"`
++	AndroidNetIfaceIndex int    `koanf:"android_net_iface_index"`
++	AndroidNetIP         string `koanf:"android_net_ip"`
++	AndroidNetPrefixLen  int    `koanf:"android_net_prefix_len"`
++
+ 	Server struct {
+ 		Enabled     bool   `koanf:"enabled"`
+ 		Address     string `koanf:"address"`
+@@ -134,6 +139,11 @@ func (c *cliConfig) toDaemonConfig() *daemon.Config {
+ 		ZeroconfBackend:               c.ZeroconfBackend,
+ 		ZeroconfInterfacesToAdvertise: c.ZeroconfInterfacesToAdvertise,
+ 
++		AndroidNetIfaceName:  c.AndroidNetIfaceName,
++		AndroidNetIfaceIndex: c.AndroidNetIfaceIndex,
++		AndroidNetIP:         c.AndroidNetIP,
++		AndroidNetPrefixLen:  c.AndroidNetPrefixLen,
++
+ 		FlacEnabled: c.FlacEnabled,
+ 		ImageSize:   c.Server.ImageSize,
+ 
+diff --git a/daemon/app.go b/daemon/app.go
+index c89e401..019b7b9 100644
+--- a/daemon/app.go
++++ b/daemon/app.go
+@@ -393,7 +393,16 @@ func (app *App) withAppPlayer(ctx context.Context, appPlayerFunc func(context.Co
+ 		return fmt.Errorf("failed getting endpoints from resolver: %w", err)
+ 	}
+ 
+-	app.zeroconf, err = zeroconf.NewZeroconf(app.log, app.cfg.ZeroconfPort, app.cfg.DeviceName, app.deviceId, app.deviceType, app.cfg.ZeroconfInterfacesToAdvertise, app.cfg.ZeroconfBackend == "avahi")
++	var androidIface *zeroconf.AndroidInterface
++	if app.cfg.AndroidNetIfaceName != "" {
++		androidIface = &zeroconf.AndroidInterface{
++			Name:  app.cfg.AndroidNetIfaceName,
++			Index: app.cfg.AndroidNetIfaceIndex,
++			IP:    app.cfg.AndroidNetIP,
++		}
++	}
++
++	app.zeroconf, err = zeroconf.NewZeroconf(app.log, app.cfg.ZeroconfPort, app.cfg.DeviceName, app.deviceId, app.deviceType, app.cfg.ZeroconfInterfacesToAdvertise, app.cfg.ZeroconfBackend == "avahi", androidIface)
+ 	if err != nil {
+ 		return fmt.Errorf("failed initializing zeroconf: %w", err)
+ 	}
+diff --git a/daemon/config.go b/daemon/config.go
+index 7d2ed16..8a2148f 100644
+--- a/daemon/config.go
++++ b/daemon/config.go
+@@ -43,6 +43,20 @@ type Config struct {
+ 	ZeroconfBackend               string
+ 	ZeroconfInterfacesToAdvertise []string
+ 
++	// AndroidNetIfaceName/AndroidNetIfaceIndex/AndroidNetIP/AndroidNetPrefixLen carry the
++	// network interface identity resolved on the Android app side (via
++	// ConnectivityManager/java.net.NetworkInterface), used in place of Go's own
++	// net.Interfaces()/net.InterfaceByName() for zeroconf registration: those are
++	// netlink-only on Android, and Android's SELinux policy denies untrusted apps bind() on
++	// netlink_route_socket (and, confirmed separately, denies reading /sys/class/net and
++	// /proc/net/* too). AndroidNetIfaceName is empty when not running under the Android app
++	// (or when it failed to resolve one), in which case zeroconf falls back to its normal
++	// behaviour.
++	AndroidNetIfaceName  string
++	AndroidNetIfaceIndex int
++	AndroidNetIP         string
++	AndroidNetPrefixLen  int
++
+ 	FlacEnabled bool
+ 
+ 	// PreferFirewallFriendlyPorts tries accesspoints on 443 and 80 before the
+diff --git a/daemon/player_state.go b/daemon/player_state.go
+index bfe554c..e04e235 100644
+--- a/daemon/player_state.go
++++ b/daemon/player_state.go
+@@ -127,7 +127,17 @@ func (s *State) playOrigin() string {
+ //
+ // Only IPv4, matching the official client. Returns empty when nothing suitable
+ // is found, in which case the entry is omitted rather than sent blank.
+-func deviceAddressMask() string {
++//
++// cfg.AndroidNetIP/AndroidNetPrefixLen, when set, are used directly instead of
++// net.Interfaces(): that call is netlink-based and Android's SELinux policy denies
++// untrusted apps the bind() it needs (see zeroconf/backend_builtin.go's comments for the
++// full story, including why /sys/class/net and /proc/net/* aren't usable fallbacks either).
++// These are resolved on the Android app side instead, the same way the zeroconf interface is.
++func deviceAddressMask(cfg *Config) string {
++	if cfg != nil && cfg.AndroidNetIP != "" {
++		return fmt.Sprintf("%s/%d", cfg.AndroidNetIP, cfg.AndroidNetPrefixLen)
++	}
++
+ 	// Which address the host would use to reach the outside. A UDP socket is
+ 	// only bound, never sends anything, so the destination is a documentation
+ 	// address that is never routed anywhere.
+@@ -224,7 +234,7 @@ func (p *AppPlayer) initState() {
+ 	}
+ 
+ 	p.state.device.MetadataMap = map[string]string{"tier1_port": "0"}
+-	if mask := deviceAddressMask(); mask != "" {
++	if mask := deviceAddressMask(p.app.cfg); mask != "" {
+ 		p.state.device.MetadataMap["device_address_mask"] = mask
+ 	}
+ 
+diff --git a/daemon/player_state_test.go b/daemon/player_state_test.go
+index 0f69cd6..b5e2d4a 100644
+--- a/daemon/player_state_test.go
++++ b/daemon/player_state_test.go
+@@ -153,7 +153,7 @@ func TestEnrichTrackMetadataIgnoresNilArguments(t *testing.T) {
+ }
+ 
+ func TestDeviceAddressMask(t *testing.T) {
+-	mask := deviceAddressMask()
++	mask := deviceAddressMask(nil)
+ 	if mask == "" {
+ 		t.Skip("no usable ipv4 interface on this host")
+ 	}
+@@ -174,6 +174,11 @@ func TestDeviceAddressMask(t *testing.T) {
+ 		"must be an address actually assigned to an interface")
+ }
+ 
++func TestDeviceAddressMaskUsesAndroidConfigWhenPresent(t *testing.T) {
++	cfg := &Config{AndroidNetIP: "10.0.2.16", AndroidNetPrefixLen: 24}
++	require.Equal(t, "10.0.2.16/24", deviceAddressMask(cfg))
++}
++
+ // The two key sets below are lifted from a capture of the official client
+ // (1.2.92.147) switching from Liked Songs to an album, which is what settles
+ // how context_metadata is meant to behave: the album PUT carries none of the
+diff --git a/zeroconf/backend_builtin.go b/zeroconf/backend_builtin.go
+index 22fb642..76df389 100644
+--- a/zeroconf/backend_builtin.go
++++ b/zeroconf/backend_builtin.go
+@@ -2,6 +2,7 @@ package zeroconf
+ 
+ import (
+ 	"net"
++	"os"
+ 
+ 	"github.com/grandcat/zeroconf"
+ )
+@@ -11,6 +12,10 @@ import (
+ type BuiltinRegistrar struct {
+ 	server *zeroconf.Server
+ 	ifaces []net.Interface
++	// overrideIP, when non-empty, is advertised directly instead of letting
++	// zeroconf.Register look up per-interface addresses itself (see Register's comment for
++	// why that lookup doesn't work on Android).
++	overrideIP string
+ 
+ 	serviceType string
+ 	domain      string
+@@ -19,9 +24,10 @@ type BuiltinRegistrar struct {
+ }
+ 
+ // NewBuiltinRegistrar creates a new built-in mDNS service registrar.
+-// If ifaces is empty, the service will be advertised on all interfaces.
+-func NewBuiltinRegistrar(ifaces []net.Interface) *BuiltinRegistrar {
+-	return &BuiltinRegistrar{ifaces: ifaces}
++// If ifaces is empty, the service will be advertised on all interfaces. overrideIP, when
++// non-empty, is advertised directly (see BuiltinRegistrar.overrideIP).
++func NewBuiltinRegistrar(ifaces []net.Interface, overrideIP string) *BuiltinRegistrar {
++	return &BuiltinRegistrar{ifaces: ifaces, overrideIP: overrideIP}
+ }
+ 
+ // Register publishes the service using the built-in mDNS responder.
+@@ -31,6 +37,36 @@ func (b *BuiltinRegistrar) Register(name, serviceType, domain string, port int,
+ 	b.port = port
+ 	b.txt = txt
+ 
++	// zeroconf.Register enumerates interfaces via Go's net.Interfaces() when b.ifaces is
++	// empty, and unconditionally calls iface.Addrs() per interface to fill in the addresses
++	// it advertises -- both are netlink_route_socket-based on Linux/Android, and Android's
++	// SELinux policy denies untrusted apps bind() on that socket class, so this always fails
++	// with "Could not determine host IP addresses" on Android. When b.ifaces is non-empty
++	// (the Android app always supplies a pre-resolved interface, see zeroconf.go's
++	// AndroidInterface), use zeroconf.RegisterProxy instead: it skips the hostname/address
++	// lookup and takes the values directly. The join-group call this ends up doing
++	// (pkConn.JoinGroup) only needs iface.Index, which the caller already filled in without
++	// touching netlink.
++	if len(b.ifaces) > 0 {
++		ip := b.overrideIP
++		if ip == "" {
++			var err error
++			ip, err = outboundIPv4()
++			if err != nil {
++				return err
++			}
++		}
++
++		host, _ := os.Hostname()
++		if host == "" {
++			host = "android"
++		}
++
++		var err error
++		b.server, err = zeroconf.RegisterProxy(name, serviceType, domain, port, host, []string{ip}, txt, b.ifaces)
++		return err
++	}
++
+ 	var err error
+ 	b.server, err = zeroconf.Register(name, serviceType, domain, port, txt, b.ifaces)
+ 	return err
+@@ -48,3 +84,28 @@ func (b *BuiltinRegistrar) Shutdown() {
+ 		b.server.Shutdown()
+ 	}
+ }
++
++// outboundIPv4 returns the local IPv4 address the kernel would use to reach the public
++// internet, via the standard "UDP connect" trick: connecting a UDP socket never actually
++// sends a packet (UDP is connectionless), it just asks the kernel to pick a route and bind a
++// local address for that destination, which we then read back. This is ordinary,
++// unprivileged INET socket use -- no netlink involved -- and needs no real connectivity to
++// the destination address to work. Kept as a fallback for callers that don't already have an
++// address (e.g. from AndroidInterface.IP).
++func outboundIPv4() (string, error) {
++	conn, err := net.Dial("udp4", "8.8.8.8:80")
++	if err != nil {
++		return "", err
++	}
++	defer func() { _ = conn.Close() }()
++
++	addr, ok := conn.LocalAddr().(*net.UDPAddr)
++	if !ok {
++		return "", &androidZeroconfError{"could not determine local UDP address"}
++	}
++	return addr.IP.String(), nil
++}
++
++type androidZeroconfError struct{ msg string }
++
++func (e *androidZeroconfError) Error() string { return e.msg }
+diff --git a/zeroconf/zeroconf.go b/zeroconf/zeroconf.go
+index 0bf3e83..e656196 100644
+--- a/zeroconf/zeroconf.go
++++ b/zeroconf/zeroconf.go
+@@ -46,7 +46,20 @@ type NewUserRequest struct {
+ 	result chan bool
+ }
+ 
+-func NewZeroconf(log librespot.Logger, port int, deviceName, deviceId string, deviceType devicespb.DeviceType, interfacesToAdvertise []string, useAvahi bool) (_ *Zeroconf, err error) {
++// AndroidInterface carries the network interface identity resolved on the Android app side
++// (via ConnectivityManager/java.net.NetworkInterface, which work fine under the SELinux
++// policy that blocks Go's own net.Interfaces()/net.InterfaceByName() -- see
++// BuiltinRegistrar.androidRegister's comment for the full story). Nil when not applicable, in
++// which case interface resolution falls back to the normal net.InterfaceByName lookup.
++type AndroidInterface struct {
++	Name  string
++	Index int
++	// IP is optional; when empty the built-in registrar falls back to the UDP-connect trick
++	// (see outboundIPv4) to determine the address to advertise.
++	IP string
++}
++
++func NewZeroconf(log librespot.Logger, port int, deviceName, deviceId string, deviceType devicespb.DeviceType, interfacesToAdvertise []string, useAvahi bool, androidIface *AndroidInterface) (_ *Zeroconf, err error) {
+ 	z := &Zeroconf{log: log, deviceId: deviceId, deviceName: deviceName, deviceType: deviceType}
+ 	z.reqsChan = make(chan NewUserRequest)
+ 
+@@ -74,18 +87,33 @@ func NewZeroconf(log librespot.Logger, port int, deviceName, deviceId string, de
+ 		log.Infof("using avahi-daemon %s for mDNS service registration", avahiReg.Version())
+ 	} else {
+ 		var ifaces []net.Interface
+-		for _, ifaceName := range interfacesToAdvertise {
+-			liface, err := net.InterfaceByName(ifaceName)
+-			if err != nil {
+-				_ = z.listener.Close()
+-				return nil, fmt.Errorf("failed to get info for network interface %s: %w", ifaceName, err)
++		var overrideIP string
++		if androidIface != nil {
++			// Skip net.InterfaceByName here too: it's the same netlink-based lookup that
++			// fails on Android, just reached from a different call site. The index/name
++			// pair below is enough for the built-in registrar to join the mDNS multicast
++			// group (see BuiltinRegistrar.androidRegister).
++			ifaces = append(ifaces, net.Interface{
++				Index: androidIface.Index,
++				Name:  androidIface.Name,
++				Flags: net.FlagUp | net.FlagMulticast,
++			})
++			overrideIP = androidIface.IP
++			log.Infof("advertising on network interface %s (resolved by the Android app)", androidIface.Name)
++		} else {
++			for _, ifaceName := range interfacesToAdvertise {
++				liface, err := net.InterfaceByName(ifaceName)
++				if err != nil {
++					_ = z.listener.Close()
++					return nil, fmt.Errorf("failed to get info for network interface %s: %w", ifaceName, err)
++				}
++
++				ifaces = append(ifaces, *liface)
++				log.Infof("advertising on network interface %s", ifaceName)
+ 			}
+-
+-			ifaces = append(ifaces, *liface)
+-			log.Infof("advertising on network interface %s", ifaceName)
+ 		}
+ 
+-		z.registrar = NewBuiltinRegistrar(ifaces)
++		z.registrar = NewBuiltinRegistrar(ifaces, overrideIP)
+ 		log.Infof("using built-in mDNS responder")
+ 	}
+ 

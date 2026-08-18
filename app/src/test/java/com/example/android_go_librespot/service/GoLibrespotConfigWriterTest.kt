@@ -10,8 +10,13 @@ import org.junit.Test
 
 class GoLibrespotConfigWriterTest {
 
-    private fun render(config: GoLibrespotConfig) =
-        GoLibrespotConfigWriter.renderYaml(config, pipePath = "/data/audio.pipe", cacheDirPath = "/data/cache")
+    private fun render(config: GoLibrespotConfig, androidNetInterface: AndroidNetInterface? = null) =
+        GoLibrespotConfigWriter.renderYaml(
+            config,
+            pipePath = "/data/audio.pipe",
+            cacheDirPath = "/data/cache",
+            androidNetInterface = androidNetInterface,
+        )
 
     @Test
     fun `pipe backend and loopback server are always forced regardless of user config`() {
@@ -83,5 +88,20 @@ class GoLibrespotConfigWriterTest {
         assertTrue(yaml.contains("normalisation_disabled: true"))
         assertTrue(yaml.contains("normalisation_use_album_gain: true"))
         assertTrue(yaml.contains("normalisation_pregain: -3.5"))
+    }
+
+    @Test
+    fun `android net interface fields are only emitted when resolved`() {
+        val withoutInterface = render(GoLibrespotConfig())
+        assertFalse(withoutInterface.contains("android_net_iface_name"))
+
+        val withInterface = render(
+            GoLibrespotConfig(),
+            androidNetInterface = AndroidNetInterface(name = "wlan0", index = 16, ip = "10.0.2.16", prefixLength = 24),
+        )
+        assertTrue(withInterface.contains("android_net_iface_name: \"wlan0\""))
+        assertTrue(withInterface.contains("android_net_iface_index: 16"))
+        assertTrue(withInterface.contains("android_net_ip: \"10.0.2.16\""))
+        assertTrue(withInterface.contains("android_net_prefix_len: 24"))
     }
 }

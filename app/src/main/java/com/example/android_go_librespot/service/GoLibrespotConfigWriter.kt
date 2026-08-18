@@ -1,10 +1,25 @@
 package com.example.android_go_librespot.service
 
 import android.content.Context
+import android.net.ConnectivityManager
 import com.example.android_go_librespot.data.CredentialsType
 import com.example.android_go_librespot.data.GoLibrespotConfig
 import com.example.android_go_librespot.util.GoLibrespotPaths
 import java.io.File
+import java.net.Inet4Address
+import java.net.NetworkInterface
+
+/**
+ * Interface identity for the daemon's zeroconf/mDNS registration, resolved on the Android
+ * side and passed into the generated config -- see [resolveAndroidNetInterface]'s kdoc for
+ * why the daemon can't resolve this itself on Android.
+ */
+internal data class AndroidNetInterface(
+    val name: String,
+    val index: Int,
+    val ip: String,
+    val prefixLength: Int,
+)
 
 /**
  * Renders [GoLibrespotConfig] plus the fixed Android-side wiring (pipe audio output,
@@ -24,7 +39,12 @@ object GoLibrespotConfigWriter {
         val pipe = GoLibrespotPaths.audioPipe(context)
         val cacheDir = GoLibrespotPaths.cacheDir(context)
 
-        val yaml = renderYaml(config, pipePath = pipe.absolutePath, cacheDirPath = cacheDir.absolutePath)
+        val yaml = renderYaml(
+            config,
+            pipePath = pipe.absolutePath,
+            cacheDirPath = cacheDir.absolutePath,
+            androidNetInterface = resolveAndroidNetInterface(context),
+        )
 
         val configFile = File(configDir, "config.yml")
         configFile.writeText(yaml)
@@ -32,10 +52,55 @@ object GoLibrespotConfigWriter {
     }
 
     /**
-     * Pure YAML rendering, split out from [write] so it's unit-testable without an Android
-     * [Context] -- everything Context-dependent (paths) is resolved by the caller first.
+     * Resolves the active network interface's name, OS interface index, and IPv4
+     * address/prefix via `ConnectivityManager`/`java.net.NetworkInterface`.
+     *
+     * The daemon's own zeroconf code can't do this on-device: Go's `net.Interfaces()` /
+     * `net.InterfaceByName()` are netlink-only on Android, and Android's SELinux policy
+     * denies untrusted apps `bind()` on `netlink_route_socket`; the same is true of reading
+     * `/sys/class/net` or files under `/proc/net` directly (also SELinux-denied for untrusted apps --
+     * confirmed via `adb logcat`'s `avc: denied` entries and direct `permission denied`
+     * errors on-device, not just documentation). `ConnectivityManager` and `NetworkInterface`
+     * work fine in the exact same process/SELinux context, though, since they're serviced by
+     * `system_server` over Binder rather than a raw netlink/sysfs read from app userspace --
+     * confirmed on-device (Pixel 6 emulator, API 37): both APIs return real interface/address
+     * data (`wlan0`, index 16, `10.0.2.16/24`) where the Go-side equivalents fail. So the
+     * app resolves this once per daemon launch and hands it down via new `android_net_*`
+     * config fields, instead of the daemon trying (and failing) to discover it itself.
      */
-    internal fun renderYaml(config: GoLibrespotConfig, pipePath: String, cacheDirPath: String): String {
+    internal fun resolveAndroidNetInterface(context: Context): AndroidNetInterface? {
+        return try {
+            val connectivityManager =
+                context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return null
+            val network = connectivityManager.activeNetwork ?: return null
+            val linkProperties = connectivityManager.getLinkProperties(network) ?: return null
+            val ifaceName = linkProperties.interfaceName ?: return null
+            val ipv4Address = linkProperties.linkAddresses.firstOrNull { it.address is Inet4Address } ?: return null
+            val ifaceIndex = NetworkInterface.getByName(ifaceName)?.index ?: return null
+            val hostAddress = ipv4Address.address.hostAddress ?: return null
+
+            AndroidNetInterface(
+                name = ifaceName,
+                index = ifaceIndex,
+                ip = hostAddress,
+                prefixLength = ipv4Address.prefixLength,
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Pure YAML rendering, split out from [write] so it's unit-testable without an Android
+     * [Context] -- everything Context-dependent (paths, network interface lookup) is
+     * resolved by the caller first.
+     */
+    internal fun renderYaml(
+        config: GoLibrespotConfig,
+        pipePath: String,
+        cacheDirPath: String,
+        androidNetInterface: AndroidNetInterface? = null,
+    ): String {
         return buildString {
             // Always capture every level from the daemon; the Dashboard's log console
             // filters client-side so the user can change the visible level without
@@ -66,6 +131,12 @@ object GoLibrespotConfigWriter {
             appendLine("zeroconf_enabled: ${config.zeroconfEnabled}")
             appendLine("zeroconf_port: ${config.zeroconfPort}")
             appendLine("zeroconf_backend: \"builtin\"")
+            if (androidNetInterface != null) {
+                appendLine("android_net_iface_name: ${quote(androidNetInterface.name)}")
+                appendLine("android_net_iface_index: ${androidNetInterface.index}")
+                appendLine("android_net_ip: ${quote(androidNetInterface.ip)}")
+                appendLine("android_net_prefix_len: ${androidNetInterface.prefixLength}")
+            }
             appendLine()
             appendLine("credentials:")
             appendLine("  type: ${quote(config.credentialsType.wireValue)}")
