@@ -51,6 +51,14 @@ object SpotifyConnectServiceState {
         _nowPlaying.value = track
     }
 
+    /** Updates the current track's position/duration in place, e.g. from a "seek" event that
+     * (unlike "metadata") doesn't carry the rest of the track's fields. No-ops if nothing is
+     * loaded, which can't happen in practice (seek events imply an active track) but is cheap
+     * to make impossible to crash on regardless. */
+    internal fun updatePosition(positionMs: Long, durationMs: Long) {
+        _nowPlaying.update { it?.copy(positionMs = positionMs, durationMs = durationMs) }
+    }
+
     internal fun setVolume(value: Int, max: Int) {
         _volume.value = value to max
     }
@@ -74,4 +82,5 @@ object SpotifyConnectServiceState {
     fun next() = apiClient?.next()
     fun previous() = apiClient?.previous()
     fun setVolumeCommand(value: Int) = apiClient?.setVolume(value)
+    fun seek(positionMs: Long) = apiClient?.seek(positionMs)
 }

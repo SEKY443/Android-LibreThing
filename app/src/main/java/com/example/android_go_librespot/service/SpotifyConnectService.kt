@@ -161,6 +161,7 @@ class SpotifyConnectService : LifecycleService() {
             }
             PlayerEvent.Active -> SpotifyConnectServiceState.setConnectionState(ConnectionState.Playing)
             is PlayerEvent.Volume -> SpotifyConnectServiceState.setVolume(event.value, event.max)
+            is PlayerEvent.Seek -> SpotifyConnectServiceState.updatePosition(event.positionMs, event.durationMs)
         }
     }
 

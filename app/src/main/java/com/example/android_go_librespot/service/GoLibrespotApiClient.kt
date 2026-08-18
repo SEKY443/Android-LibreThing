@@ -34,6 +34,7 @@ sealed interface PlayerEvent {
     data object Paused : PlayerEvent
     data object Stopped : PlayerEvent
     data class Volume(val value: Int, val max: Int) : PlayerEvent
+    data class Seek(val positionMs: Long, val durationMs: Long) : PlayerEvent
 }
 
 /**
@@ -42,7 +43,7 @@ sealed interface PlayerEvent {
  * SEKY443/go-librespot-termux for the wire format.
  *
  * [getStatus] and the player command methods ([resume], [pause], [playPause], [next],
- * [previous], [setVolume]) all block on a synchronous OkHttp call -- callers must not invoke
+ * [previous], [setVolume], [seek]) all block on a synchronous OkHttp call -- callers must not invoke
  * them from the main thread (Android throws `NetworkOnMainThreadException` for main-thread
  * network I/O regardless of the destination being loopback, and that's a `RuntimeException`,
  * not the `IOException` these methods catch internally).
@@ -118,6 +119,10 @@ class GoLibrespotApiClient(
                 val dto = json.decodeFromJsonElement<VolumeDto>(envelope.data)
                 PlayerEvent.Volume(dto.value, dto.max)
             }.getOrNull()
+            "seek" -> runCatching {
+                val dto = json.decodeFromJsonElement<SeekDto>(envelope.data)
+                PlayerEvent.Seek(dto.position, dto.duration)
+            }.getOrNull()
             else -> null
         } ?: return
         onEvent(event)
@@ -145,6 +150,7 @@ class GoLibrespotApiClient(
     fun next() = post("/player/next")
     fun previous() = post("/player/prev")
     fun setVolume(value: Int) = post("/player/volume", """{"volume":$value}""")
+    fun seek(positionMs: Long) = post("/player/seek", """{"position":$positionMs}""")
 
     private fun post(path: String, jsonBody: String? = null) {
         val body = jsonBody?.toRequestBody(JSON_MEDIA_TYPE) ?: emptyJsonBody
@@ -189,6 +195,9 @@ private data class MetadataDto(
 
 @Serializable
 private data class VolumeDto(val value: Int = 0, val max: Int = 65535)
+
+@Serializable
+private data class SeekDto(val position: Long = 0, val duration: Long = 0)
 
 @Serializable
 private data class ApiTrackDto(

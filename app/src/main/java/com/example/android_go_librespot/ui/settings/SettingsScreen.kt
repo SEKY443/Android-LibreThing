@@ -1,5 +1,6 @@
 package com.example.android_go_librespot.ui.settings
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -94,19 +95,21 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                 checked = !config.normalisationDisabled,
                 onCheckedChange = { viewModel.updateConfig { c -> c.copy(normalisationDisabled = !it) } },
             )
-            if (!config.normalisationDisabled) {
-                SwitchRow(
-                    title = "Use album gain",
-                    subtitle = "Off applies per-track gain instead",
-                    checked = config.normalisationUseAlbumGain,
-                    onCheckedChange = { viewModel.updateConfig { c -> c.copy(normalisationUseAlbumGain = it) } },
-                )
-                Text("Pregain: ${"%.1f".format(config.normalisationPregain)} dB", style = MaterialTheme.typography.bodySmall)
-                Slider(
-                    value = config.normalisationPregain,
-                    onValueChange = { viewModel.updateConfig { c -> c.copy(normalisationPregain = it) } },
-                    valueRange = -10f..10f,
-                )
+            AnimatedVisibility(visible = !config.normalisationDisabled) {
+                Column {
+                    SwitchRow(
+                        title = "Use album gain",
+                        subtitle = "Off applies per-track gain instead",
+                        checked = config.normalisationUseAlbumGain,
+                        onCheckedChange = { viewModel.updateConfig { c -> c.copy(normalisationUseAlbumGain = it) } },
+                    )
+                    Text("Pregain: ${"%.1f".format(config.normalisationPregain)} dB", style = MaterialTheme.typography.bodySmall)
+                    Slider(
+                        value = config.normalisationPregain,
+                        onValueChange = { viewModel.updateConfig { c -> c.copy(normalisationPregain = it) } },
+                        valueRange = -10f..10f,
+                    )
+                }
             }
             Spacer()
             SwitchRow(
@@ -129,32 +132,34 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                 selected = config.credentialsType,
                 onSelected = { viewModel.updateConfig { c -> c.copy(credentialsType = it) } },
             )
-            if (config.credentialsType == CredentialsType.SPOTIFY_TOKEN) {
-                Spacer()
-                var username by remember(config.spotifyTokenUsername) { mutableStateOf(config.spotifyTokenUsername) }
-                OutlinedTextField(
-                    value = username,
-                    onValueChange = {
-                        username = it
-                        viewModel.updateConfig { c -> c.copy(spotifyTokenUsername = it) }
-                    },
-                    label = { Text("Spotify username") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                )
-                Spacer()
-                var token by remember(config.spotifyTokenAccessToken) { mutableStateOf(config.spotifyTokenAccessToken) }
-                OutlinedTextField(
-                    value = token,
-                    onValueChange = {
-                        token = it
-                        viewModel.updateConfig { c -> c.copy(spotifyTokenAccessToken = it) }
-                    },
-                    label = { Text("Cached access token") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                )
+            AnimatedVisibility(visible = config.credentialsType == CredentialsType.SPOTIFY_TOKEN) {
+                Column {
+                    Spacer()
+                    var username by remember(config.spotifyTokenUsername) { mutableStateOf(config.spotifyTokenUsername) }
+                    OutlinedTextField(
+                        value = username,
+                        onValueChange = {
+                            username = it
+                            viewModel.updateConfig { c -> c.copy(spotifyTokenUsername = it) }
+                        },
+                        label = { Text("Spotify username") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                    )
+                    Spacer()
+                    var token by remember(config.spotifyTokenAccessToken) { mutableStateOf(config.spotifyTokenAccessToken) }
+                    OutlinedTextField(
+                        value = token,
+                        onValueChange = {
+                            token = it
+                            viewModel.updateConfig { c -> c.copy(spotifyTokenAccessToken = it) }
+                        },
+                        label = { Text("Cached access token") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    )
+                }
             }
             Spacer()
             SwitchRow(
@@ -197,7 +202,7 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                     )
                 }
             }
-            if (!isBatteryExempt) {
+            AnimatedVisibility(visible = !isBatteryExempt) {
                 OutlinedButton(
                     onClick = { context.startActivity(BatteryOptimizationHelper.requestIgnoreBatteryOptimizationsIntent(context)) },
                     modifier = Modifier.fillMaxWidth(),

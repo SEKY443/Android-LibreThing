@@ -37,6 +37,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     fun next() = viewModelScope.launch(Dispatchers.IO) { SpotifyConnectServiceState.next() }
     fun previous() = viewModelScope.launch(Dispatchers.IO) { SpotifyConnectServiceState.previous() }
     fun setVolume(value: Int) = viewModelScope.launch(Dispatchers.IO) { SpotifyConnectServiceState.setVolumeCommand(value) }
+    fun seek(positionMs: Long) = viewModelScope.launch(Dispatchers.IO) { SpotifyConnectServiceState.seek(positionMs) }
     fun clearLogs() = SpotifyConnectServiceState.clearLogs()
 
     /** Shows the black-screen overlay if permitted, otherwise sends the user to grant it. */
