@@ -1,3 +1,12 @@
 <resources>
-    <string name="app_name">Android-go-librespot</string>
+    <string name="app_name">go-librespot Connect</string>
+    <string name="notification_channel_name">Spotify Connect service</string>
+    <string name="notification_channel_description">Shows the running status and now-playing track for the Spotify Connect receiver</string>
+
+    <string name="status_idle">Idle</string>
+    <string name="status_starting">Starting…</string>
+    <string name="status_discoverable">Discoverable on this network</string>
+    <string name="status_playing">Playing</string>
+    <string name="status_paused">Paused</string>
+    <string name="action_stop">Stop</string>
 </resources>

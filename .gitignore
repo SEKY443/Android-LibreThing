@@ -13,3 +13,11 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Native go-librespot build: fetched sources, vcpkg checkout/build artifacts, and the
+# cross-compiled daemon binaries. Rebuilt from scratch by scripts/build-go-native.sh.
+/native/
+/app/src/main/jniLibs/
+
+# Local Claude Code session state (e.g. scheduled-wakeup lock file).
+/.claude/
