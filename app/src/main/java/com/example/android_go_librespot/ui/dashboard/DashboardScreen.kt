@@ -35,8 +35,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,13 +51,6 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
     val volume by viewModel.volume.collectAsState()
     val isServiceRunning by viewModel.isServiceRunning.collectAsState()
     val logs by viewModel.logs.collectAsState()
-
-    var showBlackScreen by remember { mutableStateOf(false) }
-
-    if (showBlackScreen) {
-        BlackScreenOverlay(onDismiss = { showBlackScreen = false })
-        return
-    }
 
     Column(
         modifier = Modifier
@@ -87,7 +78,7 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
         }
 
         OutlinedButton(
-            onClick = { showBlackScreen = true },
+            onClick = viewModel::fakeSleep,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Icon(Icons.Filled.Bedtime, contentDescription = null)

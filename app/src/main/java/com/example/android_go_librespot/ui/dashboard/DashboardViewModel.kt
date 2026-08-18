@@ -38,4 +38,14 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     fun previous() = viewModelScope.launch(Dispatchers.IO) { SpotifyConnectServiceState.previous() }
     fun setVolume(value: Int) = viewModelScope.launch(Dispatchers.IO) { SpotifyConnectServiceState.setVolumeCommand(value) }
     fun clearLogs() = SpotifyConnectServiceState.clearLogs()
+
+    /** Shows the black-screen overlay if permitted, otherwise sends the user to grant it. */
+    fun fakeSleep() {
+        val context = getApplication<Application>()
+        if (BlackScreenOverlayController.canShow(context)) {
+            BlackScreenOverlayController.show(context)
+        } else {
+            BlackScreenOverlayController.requestPermission(context)
+        }
+    }
 }
