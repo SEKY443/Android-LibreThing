@@ -24,7 +24,19 @@ object GoLibrespotConfigWriter {
         val pipe = GoLibrespotPaths.audioPipe(context)
         val cacheDir = GoLibrespotPaths.cacheDir(context)
 
-        val yaml = buildString {
+        val yaml = renderYaml(config, pipePath = pipe.absolutePath, cacheDirPath = cacheDir.absolutePath)
+
+        val configFile = File(configDir, "config.yml")
+        configFile.writeText(yaml)
+        return configFile
+    }
+
+    /**
+     * Pure YAML rendering, split out from [write] so it's unit-testable without an Android
+     * [Context] -- everything Context-dependent (paths) is resolved by the caller first.
+     */
+    internal fun renderYaml(config: GoLibrespotConfig, pipePath: String, cacheDirPath: String): String {
+        return buildString {
             // Always capture every level from the daemon; the Dashboard's log console
             // filters client-side so the user can change the visible level without
             // restarting the process.
@@ -35,8 +47,13 @@ object GoLibrespotConfigWriter {
             appendLine("device_type: ${quote(config.deviceType.wireValue)}")
             appendLine("bitrate: ${config.bitrate}")
             appendLine()
+            // Mobile/carrier networks and NATs (and Android emulator networking) commonly
+            // block outbound 4070, the access point's default port; trying 443/80 first has
+            // no downside on networks that do allow 4070.
+            appendLine("prefer_firewall_friendly_ports: true")
+            appendLine()
             appendLine("audio_backend: \"pipe\"")
-            appendLine("audio_output_pipe: ${quote(pipe.absolutePath)}")
+            appendLine("audio_output_pipe: ${quote(pipePath)}")
             appendLine("audio_output_pipe_format: \"s16le\"")
             appendLine("audio_output_pipe_wait_for_reader: true")
             appendLine()
@@ -67,13 +84,9 @@ object GoLibrespotConfigWriter {
             appendLine()
             appendLine("cache:")
             appendLine("  enabled: true")
-            appendLine("  dir: ${quote(cacheDir.absolutePath)}")
+            appendLine("  dir: ${quote(cacheDirPath)}")
             appendLine("  size_limit: \"512MB\"")
         }
-
-        val configFile = File(configDir, "config.yml")
-        configFile.writeText(yaml)
-        return configFile
     }
 
     /** Double-quoted YAML scalar with backslashes/quotes escaped; safe for any plain string value. */

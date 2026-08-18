@@ -48,6 +48,12 @@ class GoProcessController(
         ).apply {
             redirectErrorStream(true)
             directory(GoLibrespotPaths.configDir(context))
+            // Go's os.UserConfigDir() is evaluated unconditionally while the daemon computes
+            // the *default* value for --config_dir (before it even looks at the override
+            // above), and it hard-fails if neither $HOME nor $XDG_CONFIG_HOME is set -- which
+            // is always true for an Android app's process environment. The value is never
+            // actually used since we always pass --config_dir explicitly.
+            environment()["HOME"] = GoLibrespotPaths.configDir(context).absolutePath
         }
 
         onLog(LogEntry(LogLevel.INFO, "Starting go-librespot with config ${configFile.absolutePath}"))
@@ -90,11 +96,11 @@ class GoProcessController(
         readerThread = null
     }
 
-    private companion object {
+    internal companion object {
         // logrus TextFormatter, non-TTY output: time="..." level=info msg="..." [key=value ...]
-        val FIELD_REGEX = Regex("""(\w+)=(?:"((?:[^"\\]|\\.)*)"|(\S*))""")
+        private val FIELD_REGEX = Regex("""(\w+)=(?:"((?:[^"\\]|\\.)*)"|(\S*))""")
 
-        fun parseLogLine(line: String): LogEntry {
+        internal fun parseLogLine(line: String): LogEntry {
             val fields = FIELD_REGEX.findAll(line).associate { match ->
                 val key = match.groupValues[1]
                 val value = if (match.groups[2] != null) match.groupValues[2] else match.groupValues[3]
@@ -107,7 +113,11 @@ class GoProcessController(
                 "info" -> LogLevel.INFO
                 else -> LogLevel.INFO
             }
-            val message = fields["msg"] ?: line
+            val baseMessage = fields["msg"] ?: line
+            // logrus's .WithError(err) attaches the underlying cause as a separate
+            // "error" field rather than folding it into msg; surface it so failures like
+            // "failed loading config" are actually actionable from the log console.
+            val message = fields["error"]?.let { "$baseMessage: $it" } ?: baseMessage
             return LogEntry(level, message)
         }
     }

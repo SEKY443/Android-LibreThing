@@ -125,7 +125,25 @@ for ABI in "${ABIS[@]}"; do
     [ -n "$GOARM" ] && export GOARM="$GOARM"
     export CC="$CC"
     export PKG_CONFIG_PATH="$PKG_CONFIG_PATH"
-    go build -trimpath -ldflags="-s -w" -o "$OUT_DIR/libgolibrespot.so" ./cmd/daemon
+    # Android requires 16KB-aligned ELF LOAD segments on recent OS versions
+    # (https://developer.android.com/16kb-page-size); without this the binary still runs
+    # (via a compatibility shim) but the OS flags it as non-compliant. max-page-size alone
+    # only stamps the p_align header field -- common-page-size is what actually makes the
+    # linker pad segment file offsets to the 16KB boundary.
+    # -linkmode=external forces the host clang/lld to produce the final ELF (otherwise Go's
+    # own internal linker may run instead, in which case -extldflags is silently ignored and
+    # the page-size flags below have no effect).
+    # separate-code makes lld actually insert page-aligned gaps between segments of
+    # different permissions instead of just stamping p_align in the header; without it the
+    # max/common-page-size values are recorded but not acted on. This gets LOAD segments
+    # fully 16KB-file-offset-aligned except for the last one (Go's BSS/heap-reservation
+    # segment, whose start is pinned by where the previous GNU_RELRO region's own rounding
+    # ends) -- that residual case is a known rough edge in Go's external-linking output on
+    # Android and only affects the OS's page-size *compatibility check*, not correctness:
+    # Android's page-size-compat shim loads it either way.
+    go build -trimpath \
+      -ldflags="-s -w -linkmode=external -extldflags=-Wl,-z,max-page-size=16384,-z,common-page-size=16384,-z,separate-code" \
+      -o "$OUT_DIR/libgolibrespot.so" ./cmd/daemon
   )
   chmod 755 "$OUT_DIR/libgolibrespot.so"
   echo "==> [$ABI] wrote $OUT_DIR/libgolibrespot.so"

@@ -117,13 +117,19 @@ class GoLibrespotApiClient(
         onEvent(event)
     }
 
+    /** Returns null both when there's no active session (204) and when the daemon's API
+     * server isn't up yet -- callers poll this while the process is still starting. */
     fun getStatus(): PlayerStatus? {
         val request = Request.Builder().url("$baseHttpUrl/status").get().build()
-        httpClient.newCall(request).execute().use { response ->
-            if (response.code == 204 || !response.isSuccessful) return null
-            val body = response.body?.string() ?: return null
-            val dto = runCatching { json.decodeFromString<StatusDto>(body) }.getOrNull() ?: return null
-            return dto.toPlayerStatus()
+        return try {
+            httpClient.newCall(request).execute().use { response ->
+                if (response.code == 204 || !response.isSuccessful) return null
+                val body = response.body?.string() ?: return null
+                val dto = runCatching { json.decodeFromString<StatusDto>(body) }.getOrNull() ?: return null
+                dto.toPlayerStatus()
+            }
+        } catch (e: IOException) {
+            null
         }
     }
 

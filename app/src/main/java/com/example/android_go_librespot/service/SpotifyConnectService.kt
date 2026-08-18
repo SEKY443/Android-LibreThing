@@ -17,6 +17,7 @@ import com.example.android_go_librespot.R
 import com.example.android_go_librespot.data.SettingsRepository
 import com.example.android_go_librespot.service.model.ConnectionState
 import com.example.android_go_librespot.service.model.LogEntry
+import com.example.android_go_librespot.service.model.LogLevel
 import com.example.android_go_librespot.service.model.TrackInfo
 import com.example.android_go_librespot.util.GoLibrespotPaths
 import kotlinx.coroutines.Dispatchers
@@ -78,7 +79,7 @@ class SpotifyConnectService : LifecycleService() {
             val config = settingsRepository.goLibrespotConfig.first()
 
             val player = PipeAudioPlayer(GoLibrespotPaths.audioPipe(applicationContext)) { message ->
-                SpotifyConnectServiceState.appendLog(LogEntry(com.example.android_go_librespot.service.model.LogLevel.WARN, message))
+                SpotifyConnectServiceState.appendLog(LogEntry(LogLevel.WARN, message))
             }
             pipeAudioPlayer = player
             player.start()
@@ -140,6 +141,9 @@ class SpotifyConnectService : LifecycleService() {
     }
 
     private fun handleProcessExit(exitCode: Int) {
+        // Always log this, including a clean exit (0): the daemon exiting at all while the
+        // service is still meant to be running is unexpected and otherwise silent.
+        SpotifyConnectServiceState.appendLog(LogEntry(LogLevel.INFO, "go-librespot process exited (code $exitCode)"))
         if (exitCode != 0) {
             SpotifyConnectServiceState.setConnectionState(ConnectionState.Error("go-librespot exited (code $exitCode)"))
         }

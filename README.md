@@ -108,6 +108,31 @@ The **log console** on the Dashboard streams the daemon's own logrus output in r
 (filterable by level, with copy/clear actions) — check it first if discovery or playback isn't
 working.
 
+## Tested status
+
+Verified end-to-end on an arm64-v8a emulator (API 37): the daemon binary launches with a real
+cross-compiled `libgolibrespot.so`, loads its generated config, binds its loopback API server,
+the app's WebSocket client connects to `/events`, and the daemon resolves and reaches Spotify's
+real access-point/dealer/spclient infrastructure over the network. Three real bugs surfaced and
+were fixed by this testing, all still relevant if you're changing this code:
+
+- `GoLibrespotApiClient.getStatus()` didn't catch the `ConnectException` that's expected while
+  the daemon is still starting up — crashed the app on every cold start. Covered by
+  `GoLibrespotApiClientTest`.
+- The daemon needs `$HOME` set in its process environment: Go's `os.UserConfigDir()` runs
+  unconditionally while `cmd/daemon` computes the *default* value for `--config_dir`, before it
+  ever looks at the `--config_dir` override this app always passes — and Android app processes
+  don't have `$HOME` set. See the comment in `GoProcessController.start()`.
+- Access points default to port 4070, which the emulator's (and plenty of real) networks block
+  outbound; `prefer_firewall_friendly_ports: true` is now always set in the generated config.
+
+**Known open item**: in this same emulator session, the foreground service has gone quiet after
+a few minutes with no crash, no logged exit, and no kill event in `logcat` — `ps` simply shows
+the daemon and the service both gone. Given the emulator flagged insufficient host memory at
+boot (falling back to software GL rendering), this looks environmental rather than a code path
+this app controls, but it's unconfirmed. If you hit it on real hardware, the log console and
+`adb logcat` are the first places to look — please file what you find.
+
 ## Licensing note
 
 `go-librespot` is **GPLv3**. This project ships it as a separate, unmodified-at-runtime
