@@ -1,0 +1,97 @@
+diff --git a/platform.go b/platform.go
+index 4cfb15a..070ebc5 100644
+--- a/platform.go
++++ b/platform.go
+@@ -1,7 +1,10 @@
+ package go_librespot
+ 
+ import (
++	"os/exec"
+ 	"runtime"
++	"strconv"
++	"strings"
+ 
+ 	spotifypb "github.com/devgianlu/go-librespot/proto/spotify"
+ 	clienttokenpb "github.com/devgianlu/go-librespot/proto/spotify/clienttoken/data/v0"
+@@ -112,7 +115,7 @@ func GetPlatformSpecificData() *clienttokenpb.PlatformSpecificData {
+ 	case "android":
+ 		return &clienttokenpb.PlatformSpecificData{
+ 			Data: &clienttokenpb.PlatformSpecificData_Android{
+-				Android: &clienttokenpb.NativeAndroidData{},
++				Android: androidNativeData(),
+ 			},
+ 		}
+ 	case "darwin":
+@@ -143,3 +146,36 @@ func GetPlatformSpecificData() *clienttokenpb.PlatformSpecificData {
+ 
+ 	return nil
+ }
++
++// androidNativeData builds the NativeAndroidData Spotify's clienttoken endpoint expects when
++// GetPlatformSpecificData reports GOOS_ANDROID. Sending an all-zero struct here (this fork's
++// prior behaviour, since it's normally cross-compiled for GOOS=linux inside Termux and this
++// path had never actually been exercised against Spotify's servers) gets the client token
++// request rejected with a 400: the fingerprint needs to look like a real device. getprop
++// reads standard build properties that are readable by any Android app, not just system code.
++func androidNativeData() *clienttokenpb.NativeAndroidData {
++	sdkVersion, _ := strconv.Atoi(getprop("ro.build.version.sdk"))
++	model := getprop("ro.product.model")
++
++	return &clienttokenpb.NativeAndroidData{
++		ScreenDimensions: &clienttokenpb.Screen{
++			Width:   1080,
++			Height:  2400,
++			Density: 420,
++		},
++		AndroidVersion: getprop("ro.build.version.release"),
++		ApiVersion:     int32(sdkVersion),
++		DeviceName:     model,
++		ModelStr:       model,
++		Vendor:         getprop("ro.product.manufacturer"),
++		Vendor_2:       getprop("ro.product.brand"),
++	}
++}
++
++func getprop(name string) string {
++	out, err := exec.Command("getprop", name).Output()
++	if err != nil {
++		return ""
++	}
++	return strings.TrimSpace(string(out))
++}
+diff --git a/session/client_token.go b/session/client_token.go
+index 7b7ed9f..2bd3c03 100644
+--- a/session/client_token.go
++++ b/session/client_token.go
+@@ -42,8 +42,9 @@ func retrieveClientToken(c *http.Client, deviceId string) (string, error) {
+ 		Method: "POST",
+ 		URL:    reqUrl,
+ 		Header: http.Header{
+-			"Accept":     []string{"application/x-protobuf"},
+-			"User-Agent": []string{librespot.UserAgent()},
++			"Accept":       []string{"application/x-protobuf"},
++			"Content-Type": []string{"application/x-protobuf"},
++			"User-Agent":   []string{librespot.UserAgent()},
+ 		},
+ 		Body: io.NopCloser(bytes.NewReader(body)),
+ 	})
+@@ -53,15 +54,15 @@ func retrieveClientToken(c *http.Client, deviceId string) (string, error) {
+ 
+ 	defer func() { _ = resp.Body.Close() }()
+ 
+-	if resp.StatusCode != 200 {
+-		return "", fmt.Errorf("invalid status code from clienttoken: %d", resp.StatusCode)
+-	}
+-
+ 	respBody, err := io.ReadAll(resp.Body)
+ 	if err != nil {
+ 		return "", fmt.Errorf("failed reading clienttoken response: %w", err)
+ 	}
+ 
++	if resp.StatusCode != 200 {
++		return "", fmt.Errorf("invalid status code from clienttoken: %d, body: %q", resp.StatusCode, respBody)
++	}
++
+ 	var protoResp pbhttp.ClientTokenResponse
+ 	if err := proto.Unmarshal(respBody, &protoResp); err != nil {
+ 		return "", fmt.Errorf("faield unmarshalling clienttoken response: %w", err)

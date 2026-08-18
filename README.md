@@ -81,8 +81,11 @@ app/src/main/jniLibs/x86_64/libgolibrespot.so      # emulator
 ```
 
 Build just one ABI with `./scripts/build-go-native.sh arm64-v8a`. Re-run the script any time
-you want to pick up upstream fork changes (it does a `git fetch` + checkout of `master`, or set
-`GO_LIBRESPOT_REF` to pin a tag/commit).
+you want to pick up upstream fork changes (it does a `git fetch` + hard reset to `master`, or
+set `GO_LIBRESPOT_REF` to pin a tag/commit) — the reset is deliberate and safe to rely on: it
+always lands on a clean copy of that ref before applying the patches in `scripts/patches/`
+(see that directory's README for what they do and why), so the daemon source under `native/`
+never needs to be hand-edited.
 
 ## 2. Build and install the app
 
@@ -146,6 +149,21 @@ needs a real (untested) interface, not just an IP: something that gets both an i
 and address without touching netlink. Fixing this needs a change in `zeroconf/` in
 SEKY443/go-librespot-termux itself, not just Android-side config, so it's left as a follow-up
 rather than something patched blind into the build script here.
+
+**Workaround, and the next thing it runs into**: in Settings, turning off **Zeroconf / mDNS
+discovery** and setting **Authentication** to **Interactive login** (or **Cached Spotify access
+token**) skips `zeroconf.Register()` entirely — confirmed on-device: no netlink denial, no
+crash there. But `session.NewSession` unconditionally requests a Spotify client token
+(`session/client_token.go`) before *any* credential flow can proceed, zeroconf included, and
+that request currently gets rejected with an opaque `400` and an empty response body. Two
+plausible causes were tried and patched in `scripts/patches/android-clienttoken.patch` (a
+real device fingerprint instead of an all-zero one; a missing `Content-Type` header on the
+protobuf body) — neither fixed it. An empty error body on a `400` usually means the rejection
+happens at an edge/gateway layer, before Spotify's own application logic ever sees the
+request, which points toward something this app can't diagnose further without a packet
+capture against a real device on the same network (TLS fingerprint of the cross-compiled
+binary, the emulator's outbound IP being flagged, etc.) — see that patch's notes for the full
+trace.
 
 ## Licensing note
 

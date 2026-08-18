@@ -69,7 +69,17 @@ if [ ! -d "$SRC_DIR/.git" ]; then
 fi
 git -C "$SRC_DIR" fetch origin "$REPO_REF"
 git -C "$SRC_DIR" checkout "$REPO_REF"
-git -C "$SRC_DIR" merge --ff-only "origin/$REPO_REF" 2>/dev/null || true
+# Hard reset (not just fast-forward) so this is safe to re-run: it always lands on a clean
+# copy of $REPO_REF before the patches below are (re-)applied, regardless of what a prior
+# run of this script left in the working tree.
+git -C "$SRC_DIR" reset --hard "origin/$REPO_REF" 2>/dev/null || git -C "$SRC_DIR" reset --hard "$REPO_REF"
+
+echo "==> Applying Android patches"
+for patch in "$SCRIPT_DIR"/patches/*.patch; do
+  [ -e "$patch" ] || continue
+  echo "  - $(basename "$patch")"
+  git -C "$SRC_DIR" apply --whitespace=nowarn "$patch"
+done
 
 echo "==> Bootstrapping vcpkg"
 if [ ! -d "$VCPKG_DIR/.git" ]; then
