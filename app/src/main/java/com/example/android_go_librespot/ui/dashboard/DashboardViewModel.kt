@@ -2,12 +2,15 @@ package com.example.android_go_librespot.ui.dashboard
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import com.example.android_go_librespot.service.SpotifyConnectService
 import com.example.android_go_librespot.service.SpotifyConnectServiceState
 import com.example.android_go_librespot.service.model.ConnectionState
 import com.example.android_go_librespot.service.model.LogEntry
 import com.example.android_go_librespot.service.model.TrackInfo
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 
 class DashboardViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -26,9 +29,13 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun playPause() = SpotifyConnectServiceState.playPause()
-    fun next() = SpotifyConnectServiceState.next()
-    fun previous() = SpotifyConnectServiceState.previous()
-    fun setVolume(value: Int) = SpotifyConnectServiceState.setVolumeCommand(value)
+    // GoLibrespotApiClient's player commands are synchronous blocking calls (see its kdoc);
+    // dispatched off Dispatchers.IO so they don't run on the Compose UI thread, which would
+    // throw NetworkOnMainThreadException -- uncaught, since that's a RuntimeException, not
+    // the IOException the client itself catches.
+    fun playPause() = viewModelScope.launch(Dispatchers.IO) { SpotifyConnectServiceState.playPause() }
+    fun next() = viewModelScope.launch(Dispatchers.IO) { SpotifyConnectServiceState.next() }
+    fun previous() = viewModelScope.launch(Dispatchers.IO) { SpotifyConnectServiceState.previous() }
+    fun setVolume(value: Int) = viewModelScope.launch(Dispatchers.IO) { SpotifyConnectServiceState.setVolumeCommand(value) }
     fun clearLogs() = SpotifyConnectServiceState.clearLogs()
 }

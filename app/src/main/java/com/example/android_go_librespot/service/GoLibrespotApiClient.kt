@@ -40,6 +40,12 @@ sealed interface PlayerEvent {
  * REST + WebSocket client for go-librespot's local API server (`server.enabled: true` in
  * [GoLibrespotConfigWriter]), bound to loopback only. See API.md / api-spec.yml in
  * SEKY443/go-librespot-termux for the wire format.
+ *
+ * [getStatus] and the player command methods ([resume], [pause], [playPause], [next],
+ * [previous], [setVolume]) all block on a synchronous OkHttp call -- callers must not invoke
+ * them from the main thread (Android throws `NetworkOnMainThreadException` for main-thread
+ * network I/O regardless of the destination being loopback, and that's a `RuntimeException`,
+ * not the `IOException` these methods catch internally).
  */
 class GoLibrespotApiClient(
     private val onEvent: (PlayerEvent) -> Unit,
