@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.android_go_librespot.service.model.LogEntry
 import com.example.android_go_librespot.service.model.LogLevel
@@ -118,7 +119,15 @@ fun LogConsole(
                             onClick = {
                                 activeLevels = if (level in activeLevels) activeLevels - level else activeLevels + level
                             },
-                            label = { Text(level.name) },
+                            label = {
+                                Text(
+                                    level.name,
+                                    fontFamily = FontFamily.Monospace,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
                         )
                     }
                 }

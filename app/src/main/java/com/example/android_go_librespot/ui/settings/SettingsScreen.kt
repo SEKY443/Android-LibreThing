@@ -96,19 +96,39 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                 onCheckedChange = { viewModel.updateConfig { c -> c.copy(normalisationDisabled = !it) } },
             )
             AnimatedVisibility(visible = !config.normalisationDisabled) {
-                Column {
+                // Indented so it visually reads as "these two are options of the switch above",
+                // not a separate, unrelated group of controls.
+                Column(modifier = Modifier.padding(start = 16.dp)) {
                     SwitchRow(
                         title = "Use album gain",
                         subtitle = "Off applies per-track gain instead",
                         checked = config.normalisationUseAlbumGain,
                         onCheckedChange = { viewModel.updateConfig { c -> c.copy(normalisationUseAlbumGain = it) } },
                     )
-                    Text("Pregain: ${"%.1f".format(config.normalisationPregain)} dB", style = MaterialTheme.typography.bodySmall)
+                    Spacer()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("Pregain", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "${"%+.1f".format(config.normalisationPregain)} dB",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                     Slider(
                         value = config.normalisationPregain,
                         onValueChange = { viewModel.updateConfig { c -> c.copy(normalisationPregain = it) } },
                         valueRange = -10f..10f,
                     )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("-10 dB", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("+10 dB", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
             Spacer()
@@ -123,7 +143,8 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
         SettingsSection(title = "Discovery & authentication") {
             SwitchRow(
                 title = "Zeroconf / mDNS discovery",
-                subtitle = "Show up as a speaker to Spotify apps on this network",
+                subtitle = "Makes this speaker visible to Spotify apps on this network -- independent of " +
+                    "Authentication below, which is how it signs in, not how it's found",
                 checked = config.zeroconfEnabled,
                 onCheckedChange = { viewModel.updateConfig { c -> c.copy(zeroconfEnabled = it) } },
             )
