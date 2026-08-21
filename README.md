@@ -30,7 +30,8 @@ Repository: https://github.com/SEKY443/Android-LibreThing
 ## What you'll need
 
 - An Android phone or tablet running **Android 7.0 or newer**.
-- The same Wi-Fi network for the Librething device and whatever you're casting from.
+- The network for the Librething device.
+- If you are using zeroconf mode, all the devices should be in the same network.
 - A speaker or headphones plugged into (or built into) that device.
 
 ## Building it
