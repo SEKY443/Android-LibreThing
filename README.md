@@ -8,25 +8,6 @@ just open Spotify on your phone or laptop, tap the Connect icon, pick the device
 starts playing through whatever speaker or headphones are plugged into it — even after you close
 Spotify on your other device. It keeps running in the background like a dedicated speaker would.
 
-## Screenshots
-
-<table>
-<tr>
-<td width="50%"><img src="doc/screenshot/darkThemeWithOledBlackVerticalPlayer.jpg" alt="Dark theme, OLED-black background, portrait player showing a playing track with the wavy seek bar and transport controls"></td>
-<td width="50%"><img src="doc/screenshot/lightThemeWithTintBgIdle.jpg" alt="Light theme, tinted idle background, log console expanded above an idle status and the start button"></td>
-</tr>
-<tr>
-<td align="center">OLED-black, portrait</td>
-<td align="center">Tinted, idle with log console</td>
-</tr>
-<tr>
-<td colspan="2"><img src="doc/screenshot/darkThemeWithBlurCoverArtLandscapePlayer.jpg" alt="Dark theme, blurred cover-art background, landscape player with a volume slider"></td>
-</tr>
-<tr>
-<td colspan="2" align="center">Blurred cover art, landscape</td>
-</tr>
-</table>
-
 ## What it can do
 
 - **Works like a real Spotify Connect device** — appears automatically to any Spotify app on the
@@ -48,6 +29,25 @@ Spotify on your other device. It keeps running in the background like a dedicate
 - **A log screen** if something isn't working, so you can see what's going on instead of guessing.
 - **Hardware button support** — media keys on a Bluetooth speaker or headset (play/pause/skip)
   control playback directly, no need to touch the screen.
+
+## Screenshots
+
+<table>
+<tr>
+<td width="50%"><img src="doc/screenshot/darkThemeWithOledBlackVerticalPlayer.jpg" alt="Dark theme, OLED-black background, portrait player showing a playing track with the wavy seek bar and transport controls"></td>
+<td width="50%"><img src="doc/screenshot/lightThemeWithTintBgIdle.jpg" alt="Light theme, tinted idle background, log console expanded above an idle status and the start button"></td>
+</tr>
+<tr>
+<td align="center">OLED-black, portrait</td>
+<td align="center">Tinted, idle with log console</td>
+</tr>
+<tr>
+<td colspan="2"><img src="doc/screenshot/darkThemeWithBlurCoverArtLandscapePlayer.jpg" alt="Dark theme, blurred cover-art background, landscape player with a volume slider"></td>
+</tr>
+<tr>
+<td colspan="2" align="center">Blurred cover art, landscape</td>
+</tr>
+</table>
 
 ## What you'll need
 
