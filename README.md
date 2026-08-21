@@ -11,17 +11,16 @@ Spotify on your other device. It keeps running in the background like a dedicate
 ## What it can do
 
 - **Works like a real Spotify Connect device** — appears automatically to any Spotify app on the
-  same Wi-Fi network, or you can sign in directly.
+  same Wi-Fi network, or you can sign in directly to use it in different a network.
 - **Runs in the background**, even with the screen off, so the device can sit in a corner like an
-  actual speaker.
-- **Two dashboard styles**: a clean "now playing" screen by default, or a more detailed classic
-  layout for people who want more visible controls.
+  actual speaker. (which is exactly how I use my own setup)
+- **Material Express style player** - transfer your phone into a Car thing like device.
 - **Fake sleep** — dims the screen to pure black while still playing, to protect OLED screens
   from burn-in and stop the display from being a distraction. Fades to black automatically after
   a period of inactivity, or trigger it yourself with one tap.
 - **Auto-restart** — if the background player crashes for any reason, it restarts itself
   automatically instead of just going silent.
-- **Light/dark themes** and a few background styles (plain, pure black, or a blurred version of
+- **Dynamic color supported** and a few background styles (plain, pure black, or a blurred version of
   the album art).
 - **Cross-network connectivity** — sign in directly (interactive login or a cached token) and
   it'll show up in your Spotify Connect list from anywhere, not just when you're on the same
