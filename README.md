@@ -10,6 +10,25 @@ Spotify on your other device. It keeps running in the background like a dedicate
 
 Repository: https://github.com/SEKY443/Android-LibreThing
 
+## Screenshots
+
+<table>
+<tr>
+<td width="50%"><img src="doc/screenshot/darkThemeWithOledBlackVerticalPlayer.jpg" alt="Dark theme, OLED-black background, portrait player showing a playing track with the wavy seek bar and transport controls"></td>
+<td width="50%"><img src="doc/screenshot/lightThemeWithTintBgIdle.jpg" alt="Light theme, tinted idle background, log console expanded above an idle status and the start button"></td>
+</tr>
+<tr>
+<td align="center">OLED-black, portrait</td>
+<td align="center">Tinted, idle with log console</td>
+</tr>
+<tr>
+<td colspan="2"><img src="doc/screenshot/darkThemeWithBlurCoverArtLandscapePlayer.jpg" alt="Dark theme, blurred cover-art background, landscape player with a volume slider"></td>
+</tr>
+<tr>
+<td colspan="2" align="center">Blurred cover art, landscape</td>
+</tr>
+</table>
+
 ## What it can do
 
 - **Works like a real Spotify Connect device** — appears automatically to any Spotify app on the
@@ -25,13 +44,18 @@ Repository: https://github.com/SEKY443/Android-LibreThing
   automatically instead of just going silent.
 - **Light/dark themes** and a few background styles (plain, pure black, or a blurred version of
   the album art).
+- **Cross-network connectivity** — sign in directly (interactive login or a cached token) and
+  it'll show up in your Spotify Connect list from anywhere, not just when you're on the same
+  Wi-Fi network as it.
 - **A log screen** if something isn't working, so you can see what's going on instead of guessing.
+- **Hardware button support** — media keys on a Bluetooth speaker or headset (play/pause/skip)
+  control playback directly, no need to touch the screen.
 
 ## What you'll need
 
 - An Android phone or tablet running **Android 7.0 or newer**.
-- The network for the Librething device.
-- If you are using zeroconf mode, all the devices should be in the same network.
+- A network connection for the Librething device — the same Wi-Fi as the device you're casting
+  from only if you're using Zeroconf discovery; any network works with a direct sign-in instead.
 - A speaker or headphones plugged into (or built into) that device.
 
 ## Building it
@@ -79,9 +103,9 @@ Android SDK/NDK for you), and the [Go](https://go.dev/dl/) programming language.
 3. Still in Settings, tap **"Disable battery optimization for this app"**. Without this, Android
    will eventually pause the app in the background and Spotify Connect will stop working after a
    while.
-4. Back on the main screen, tap the power button to start it. Once it says **"On standby"**,
+4. Back on the main screen, tap the power button to start it. Once it says **"Discoverable"**,
    it's ready.
-5. Open Spotify on any device on the same Wi-Fi, tap the Connect icon (bottom-left, looks like a
+5. Open Spotify on any device (on the same Wi-Fi if you are using zeroconf mode), tap the Connect icon (bottom-left, looks like a
    speaker with a wifi symbol), and your device should appear in the list.
 
 That's it — pick a song and it'll start playing through your device's speaker.
@@ -97,7 +121,7 @@ That's it — pick a song and it'll start playing through your device's speaker.
   crash-recovery toggle mentioned above.
 - If something's not working, open the **log** (the terminal icon) to see what the app is
   actually doing — it's the fastest way to tell whether it's a Wi-Fi problem, a login problem, or
-  something else.
+  something else. (And it also looks cool)
 
 ## Where the audio engine comes from
 

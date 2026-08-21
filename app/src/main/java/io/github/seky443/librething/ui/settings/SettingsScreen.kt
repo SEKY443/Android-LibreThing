@@ -29,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -50,6 +51,7 @@ import io.github.seky443.librething.data.DashboardBackgroundStyle
 import io.github.seky443.librething.data.DeviceType
 import io.github.seky443.librething.data.GoLibrespotConfig
 import io.github.seky443.librething.data.ThemeMode
+import io.github.seky443.librething.ui.dashboard.BlackScreenOverlayController
 import io.github.seky443.librething.util.BatteryOptimizationHelper
 import kotlin.math.roundToInt
 
@@ -65,9 +67,13 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
     val config by viewModel.goLibrespotConfig.collectAsState()
     val appPrefs by viewModel.appPreferences.collectAsState()
     val isBatteryExempt by viewModel.isBatteryOptimizationExempt.collectAsState()
+    val isOverlayPermissionGranted by viewModel.isOverlayPermissionGranted.collectAsState()
     val context = LocalContext.current
 
-    LaunchedEffect(Unit) { viewModel.refreshBatteryOptimizationStatus() }
+    LaunchedEffect(Unit) {
+        viewModel.refreshBatteryOptimizationStatus()
+        viewModel.refreshOverlayPermissionStatus()
+    }
 
     Column(
         modifier = Modifier
@@ -350,6 +356,33 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                         checked = appPrefs.autoSleepNapModeEnabled,
                         onCheckedChange = { viewModel.updateAppPreferences { p -> p.copy(autoSleepNapModeEnabled = it) } },
                     )
+                }
+            }
+            Column(modifier = Modifier.padding(vertical = SettingsRowPadding)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Icon(
+                        if (isOverlayPermissionGranted) Icons.Filled.CheckCircle else Icons.Filled.Layers,
+                        contentDescription = null,
+                    )
+                    Column {
+                        Text(stringResource(R.string.settings_overlay_permission_label), style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            stringResource(
+                                if (isOverlayPermissionGranted) R.string.settings_overlay_permission_granted_subtitle
+                                else R.string.settings_overlay_permission_not_granted_subtitle,
+                            ),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                AnimatedVisibility(visible = !isOverlayPermissionGranted) {
+                    OutlinedButton(
+                        onClick = { BlackScreenOverlayController.requestPermission(context) },
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    ) {
+                        Text(stringResource(R.string.settings_grant_overlay_permission_button))
+                    }
                 }
             }
         }

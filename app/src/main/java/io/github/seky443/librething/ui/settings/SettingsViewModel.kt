@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.seky443.librething.GoLibrespotApplication
 import io.github.seky443.librething.data.AppPreferences
 import io.github.seky443.librething.data.GoLibrespotConfig
+import io.github.seky443.librething.ui.dashboard.BlackScreenOverlayController
 import io.github.seky443.librething.util.BatteryOptimizationHelper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -30,6 +31,17 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun refreshBatteryOptimizationStatus() {
         _isBatteryOptimizationExempt.value =
             BatteryOptimizationHelper.isIgnoringBatteryOptimizations(getApplication())
+    }
+
+    // Fake sleep (both the manual button and the automatic idle/nap-mode triggers in
+    // MainActivity) draws a SYSTEM_ALERT_WINDOW overlay; without that permission it just
+    // silently never appears, with nothing on screen to explain why -- surfaced here instead so
+    // Settings can show a persistent notice pointing at the fix.
+    private val _isOverlayPermissionGranted = MutableStateFlow(false)
+    val isOverlayPermissionGranted: StateFlow<Boolean> = _isOverlayPermissionGranted.asStateFlow()
+
+    fun refreshOverlayPermissionStatus() {
+        _isOverlayPermissionGranted.value = BlackScreenOverlayController.canShow(getApplication())
     }
 
     fun updateConfig(transform: (GoLibrespotConfig) -> GoLibrespotConfig) {

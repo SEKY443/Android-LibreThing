@@ -131,6 +131,10 @@
     <string name="settings_idle_delay_range_max">5m</string>
     <string name="settings_nap_mode_title">Nap mode</string>
     <string name="settings_nap_mode_subtitle">Re-sleeps after the idle delay even mid-playback</string>
+    <string name="settings_overlay_permission_label">Display over other apps</string>
+    <string name="settings_overlay_permission_granted_subtitle">Granted — fake sleep can darken the screen</string>
+    <string name="settings_overlay_permission_not_granted_subtitle">Required — without it, fake sleep (manual or automatic) silently does nothing</string>
+    <string name="settings_grant_overlay_permission_button">Grant permission</string>
 
     <!-- Shared ConnectionState display strings (DashboardScreen.kt label(), SimpleDashboardScreen.kt idleSubtitle()) -->
     <string name="connection_state_idle">Idle</string>
