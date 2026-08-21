@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.android_go_librespot"
+    namespace = "io.github.seky443.librething"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -13,7 +13,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.android_go_librespot"
+        applicationId = "io.github.seky443.librething"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
@@ -44,6 +44,20 @@ android {
         // or the runtime dlopen validation some OEMs apply would reject them.
         jniLibs {
             useLegacyPackaging = true
+        }
+    }
+
+    // One APK per ABI (each a fraction of the universal APK's size, since it skips the
+    // other three ABIs' copy of libgolibrespot.so) plus a universal fallback that bundles
+    // all four -- the right pick when you don't know a target device's ABI up front, or
+    // it's for a store/CI pipeline that only wants a single artifact. No per-ABI versionCode
+    // remapping: that only matters for Play Store uploads, not direct APK distribution.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            isUniversalApk = true
         }
     }
 }
@@ -79,6 +93,9 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
+    implementation(libs.androidx.palette)
+    implementation(libs.androidx.media3.session)
+    implementation(libs.androidx.media3.common)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)

@@ -1,12 +1,193 @@
 <resources>
-    <string name="app_name">go-librespot Connect</string>
-    <string name="notification_channel_name">Spotify Connect service</string>
+    <string name="app_name">Librething</string>
+    <string name="notification_channel_name">Librething service</string>
     <string name="notification_channel_description">Shows the running status and now-playing track for the Spotify Connect receiver</string>
 
     <string name="status_idle">Idle</string>
     <string name="status_starting">Starting…</string>
-    <string name="status_discoverable">Discoverable on this network</string>
+    <string name="status_discoverable">On standby</string>
     <string name="status_playing">Playing</string>
     <string name="status_paused">Paused</string>
     <string name="action_stop">Stop</string>
+    <string name="action_play">Play</string>
+    <string name="action_pause">Pause</string>
+    <string name="action_next">Next</string>
+    <string name="action_previous">Previous</string>
+
+    <!-- ThemeMode (AppPreferences.kt) -->
+    <string name="theme_mode_system">Follow system</string>
+    <string name="theme_mode_light">Light</string>
+    <string name="theme_mode_dark">Dark</string>
+
+    <!-- DashboardBackgroundStyle (AppPreferences.kt) -->
+    <string name="dashboard_background_tinted">Tinted (default)</string>
+    <string name="dashboard_background_oled_black">OLED black</string>
+    <string name="dashboard_background_blurred_cover">Blurred cover art</string>
+
+    <!-- DeviceType (GoLibrespotConfig.kt) -->
+    <string name="device_type_computer">Computer</string>
+    <string name="device_type_tablet">Tablet</string>
+    <string name="device_type_smartphone">Smartphone</string>
+    <string name="device_type_speaker">Speaker</string>
+    <string name="device_type_tv">TV</string>
+    <string name="device_type_avr">AVR</string>
+    <string name="device_type_stb">Set-top box</string>
+    <string name="device_type_audio_dongle">Audio dongle</string>
+    <string name="device_type_game_console">Game console</string>
+    <string name="device_type_cast_video">Chromecast (video)</string>
+    <string name="device_type_cast_audio">Chromecast (audio)</string>
+    <string name="device_type_automobile">Automobile</string>
+    <string name="device_type_smartwatch">Smartwatch</string>
+    <string name="device_type_chromebook">Chromebook</string>
+    <string name="device_type_car_thing">Car Thing</string>
+    <string name="device_type_observer">Observer</string>
+    <string name="device_type_home_thing">Home thing</string>
+
+    <!-- CredentialsType (GoLibrespotConfig.kt) -->
+    <string name="credentials_type_zeroconf">Zeroconf (discover from Spotify app)</string>
+    <string name="credentials_type_interactive">Interactive login (browser OAuth)</string>
+    <string name="credentials_type_spotify_token">Cached Spotify access token</string>
+
+    <!-- SettingsScreen.kt: Dashboard section -->
+    <string name="settings_section_dashboard">Dashboard</string>
+    <string name="settings_nerd_mode_title">Nerd mode</string>
+    <string name="settings_nerd_mode_subtitle">Revert to the initial UI of this project. It looks basic but is convenient for debugging.</string>
+    <string name="settings_fullscreen_mode_title">Fullscreen mode</string>
+    <string name="settings_fullscreen_mode_subtitle">Hides the status and navigation bars; swipe from an edge to reveal them temporarily.</string>
+    <string name="settings_icon_row_label">Icon row</string>
+    <string name="settings_hide_console_button_title">Hide console button</string>
+    <string name="settings_hide_fake_sleep_button_title">Hide fake sleep button</string>
+    <string name="settings_volume_slider_label">Volume slider</string>
+    <string name="settings_show_volume_slider_title">Show volume slider</string>
+
+    <!-- SettingsScreen.kt: Landscape section -->
+    <string name="settings_section_landscape">Landscape</string>
+    <string name="settings_landscape_hide_icon_row_title">Hide icon row</string>
+    <string name="settings_landscape_hide_icon_row_subtitle">Portrait is unaffected, so Settings stays reachable</string>
+    <string name="settings_landscape_hide_last_session_title">Hide last session time</string>
+    <string name="settings_landscape_stretch_transport_title">Stretch transport row</string>
+    <string name="settings_landscape_stretch_transport_subtitle">Matches the progress bar\'s width instead of the narrower default</string>
+    <string name="settings_landscape_left_align_title">Left-align track info</string>
+    <string name="settings_landscape_left_align_subtitle">Also adds an edge fade to the scrolling title</string>
+    <string name="settings_landscape_volume_slider_only_title">Show volume slider only in landscape</string>
+
+    <!-- SettingsScreen.kt: Appearance section -->
+    <string name="settings_section_appearance">Appearance</string>
+    <string name="settings_theme_label">Theme</string>
+    <string name="settings_dashboard_background_label">Simplified dashboard background</string>
+
+    <!-- SettingsScreen.kt: Device configuration section -->
+    <string name="settings_section_device_configuration">Device configuration</string>
+    <string name="settings_device_name_label">Device name</string>
+    <string name="settings_device_type_label">Device type</string>
+
+    <!-- SettingsScreen.kt: Playback section -->
+    <string name="settings_section_playback">Playback</string>
+    <string name="settings_bitrate_label">Bitrate</string>
+    <string name="settings_bitrate_option_format">%1$dkbps</string>
+    <string name="settings_volume_normalization_title">Volume normalization</string>
+    <string name="settings_volume_normalization_subtitle">Target -14 LUFS (ITU-R BS.1770)</string>
+    <string name="settings_use_album_gain_title">Use album gain</string>
+    <string name="settings_use_album_gain_subtitle">Off applies per-track gain instead</string>
+    <string name="settings_pregain_label">Pregain</string>
+    <string name="settings_pregain_value_format">%1$s dB</string>
+    <string name="settings_pregain_range_min">-10 dB</string>
+    <string name="settings_pregain_range_max">+10 dB</string>
+    <string name="settings_autoplay_title">Autoplay</string>
+    <string name="settings_autoplay_subtitle">Keep playing similar tracks when the queue ends</string>
+
+    <!-- SettingsScreen.kt: Discovery & authentication section -->
+    <string name="settings_section_discovery_auth">Discovery &amp; authentication</string>
+    <string name="settings_zeroconf_title">Zeroconf / mDNS discovery</string>
+    <string name="settings_zeroconf_subtitle">Makes this speaker visible to Spotify apps on this network.</string>
+    <string name="settings_authentication_label">Authentication</string>
+    <string name="settings_spotify_username_label">Spotify username</string>
+    <string name="settings_cached_token_label">Cached access token</string>
+    <string name="settings_optimistic_replies_title">Optimistic playback replies</string>
+    <string name="settings_optimistic_replies_subtitle">Advanced: acknowledge play/pause/seek immediately instead of waiting on the audio backend</string>
+
+    <!-- SettingsScreen.kt: App behavior section -->
+    <string name="settings_section_app_behavior">App behavior</string>
+    <string name="settings_keep_screen_on_title">Keep screen always on</string>
+    <string name="settings_hold_wake_lock_title">Hold wake lock while running</string>
+    <string name="settings_hold_wake_lock_subtitle">Prevents the CPU sleeping so playback doesn\'t stutter in the background</string>
+    <string name="settings_autostart_boot_title">Autostart on boot</string>
+    <string name="settings_auto_restart_on_crash_title">Restart automatically on crash</string>
+    <string name="settings_auto_restart_on_crash_subtitle">Relaunches go-librespot after a fatal error, up to 5 attempts before giving up</string>
+    <string name="settings_battery_optimization_label">Battery optimization</string>
+    <string name="settings_battery_exempt_subtitle">Exempt — background playback won\'t be throttled</string>
+    <string name="settings_battery_not_exempt_subtitle">Not exempt — Android may kill the service in the background</string>
+    <string name="settings_disable_battery_optimization_button">Disable battery optimization for this app</string>
+
+    <!-- SettingsScreen.kt: Fake sleep section -->
+    <string name="settings_section_fake_sleep">Fake sleep</string>
+    <string name="settings_auto_sleep_idle_title">Auto sleep when idle</string>
+    <string name="settings_auto_sleep_idle_subtitle">Fades to black after a period without playback</string>
+    <string name="settings_fake_sleep_single_tap_wake_title">Wake on single tap</string>
+    <string name="settings_fake_sleep_single_tap_wake_subtitle">Off uses a double-tap instead, to avoid waking it by accident</string>
+    <string name="settings_idle_delay_label">Idle delay</string>
+    <string name="settings_idle_delay_value_format">%1$ds</string>
+    <string name="settings_idle_delay_range_min">10s</string>
+    <string name="settings_idle_delay_range_max">5m</string>
+    <string name="settings_nap_mode_title">Nap mode</string>
+    <string name="settings_nap_mode_subtitle">Re-sleeps after the idle delay even mid-playback</string>
+
+    <!-- Shared ConnectionState display strings (DashboardScreen.kt label(), SimpleDashboardScreen.kt idleSubtitle()) -->
+    <string name="connection_state_idle">Idle</string>
+    <string name="connection_state_starting">Starting…</string>
+    <string name="connection_state_discoverable">Discoverable</string>
+    <string name="connection_state_playing">Playing</string>
+    <string name="connection_state_paused">Paused</string>
+    <string name="connection_state_error_format">Error: %1$s</string>
+    <string name="idle_subtitle_server_not_running">Server not running</string>
+    <string name="idle_subtitle_discoverable">Waiting for a Spotify Connect client</string>
+
+    <!-- SimpleDashboardScreen.kt: idle title/subtitle special cases -->
+    <string name="idle_title_error">Error</string>
+    <string name="idle_title_receiving_track_info">Receiving track info</string>
+    <string name="idle_subtitle_please_wait">Please wait a moment</string>
+
+    <!-- SimpleDashboardScreen.kt: last-session idle label -->
+    <string name="last_session_none">No previous session</string>
+    <string name="last_session_just_now">Last session: just now</string>
+    <string name="last_session_minutes_ago_format">Last session: %1$dm ago</string>
+    <string name="last_session_hours_ago_format">Last session: %1$dh ago</string>
+    <string name="last_session_days_ago_format">Last session: %1$dd ago</string>
+
+    <!-- SimpleDashboardScreen.kt: toasts -->
+    <string name="toast_console_long_press_hint">Long-press to filter or copy logs</string>
+    <string name="toast_fake_sleep_wake_hint">Double-tap to wake</string>
+    <string name="toast_copied_to_clipboard">Copied to clipboard</string>
+
+    <!-- SimpleDashboardScreen.kt: console options sheet -->
+    <string name="console_options_log_levels_label">Log levels</string>
+    <string name="console_options_copy_logs_button">Copy logs</string>
+
+    <!-- SimpleDashboardScreen.kt: content descriptions -->
+    <string name="content_desc_album_art">Album art</string>
+    <string name="content_desc_show_cover_art">Show cover art</string>
+    <string name="content_desc_show_console">Show console</string>
+    <string name="content_desc_fake_sleep">Fake sleep</string>
+    <string name="content_desc_stop_long_press_settings">Stop (long-press for Settings)</string>
+    <string name="content_desc_settings">Settings</string>
+    <string name="content_desc_previous">Previous</string>
+    <string name="content_desc_start_server">Start server</string>
+    <string name="content_desc_play_pause">Play/Pause</string>
+    <string name="content_desc_next">Next</string>
+    <string name="content_desc_discoverable">Discoverable, waiting for a Spotify Connect client</string>
+
+    <!-- DashboardScreen.kt (Nerd Mode) -->
+    <string name="dashboard_fake_sleep_button">Fake sleep (black screen)</string>
+
+    <!-- LogConsole.kt -->
+    <string name="log_console_title">Log console</string>
+    <string name="content_desc_collapse_log_console">Collapse log console</string>
+    <string name="content_desc_expand_log_console">Expand log console</string>
+    <string name="content_desc_copy_logs">Copy logs</string>
+    <string name="content_desc_clear_logs">Clear logs</string>
+
+    <!-- AppDestination (bottom nav, Nerd Mode) / AppNavHost.kt -->
+    <string name="nav_destination_dashboard">Dashboard</string>
+    <string name="nav_destination_settings">Settings</string>
+    <string name="content_desc_back">Back</string>
 </resources>

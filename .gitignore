@@ -1,18 +1,28 @@
+# Gradle
+.gradle/
+/build/
+/*/build/
+.kotlin/
+
+# Android / Studio
 *.iml
-.gradle
 /local.properties
-/.idea/caches
-/.idea/libraries
+/captures/
+.externalNativeBuild/
+.cxx/
+/.idea/caches/
+/.idea/libraries/
 /.idea/modules.xml
 /.idea/workspace.xml
 /.idea/navEditor.xml
 /.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
+/.idea/deploymentTargetSelector.xml
+/.idea/vcs.xml
+
+# Signing -- never commit a real keystore or its credentials.
+*.jks
+*.keystore
+keystore.properties
 
 # Native go-librespot build: fetched sources, vcpkg checkout/build artifacts, and the
 # cross-compiled daemon binaries. Rebuilt from scratch by scripts/build-go-native.sh.
@@ -21,3 +31,7 @@ local.properties
 
 # Local Claude Code session state (e.g. scheduled-wakeup lock file).
 /.claude/
+
+# OS
+.DS_Store
+Thumbs.db

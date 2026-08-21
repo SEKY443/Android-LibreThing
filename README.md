@@ -1,203 +1,125 @@
-# go-librespot Connect (Android)
+# Librething
 
-A standalone, background-capable Spotify Connect receiver for Android. It runs the
-[`go-librespot`](https://github.com/SEKY443/go-librespot-termux) daemon as a managed child
-process inside a foreground service and plays its audio through `AudioTrack` — no Termux, no
-proot, no PulseAudio.
+Turn an old Android phone or tablet into a **Spotify Connect speaker** — the kind that shows up
+right inside the Spotify app as a device you can send music to, no cable or pairing required.
 
-## Architecture
+Librething runs the real Spotify Connect protocol on the device itself. Once it's set up, you
+just open Spotify on your phone or laptop, tap the Connect icon, pick the device, and your music
+starts playing through whatever speaker or headphones are plugged into it — even after you close
+Spotify on your other device. It keeps running in the background like a dedicated speaker would.
 
-```
-┌─────────────────────────── Android app process ───────────────────────────┐
-│                                                                             │
-│  Jetpack Compose UI  ──StateFlow──►  SpotifyConnectServiceState            │
-│  (Dashboard/Settings)                        ▲                             │
-│                                               │ updates                    │
-│                                  ┌────────────┴─────────────┐              │
-│                                  │  SpotifyConnectService     │            │
-│                                  │  (Foreground Service)      │            │
-│                                  └──────┬──────────┬─────────┘             │
-│                          ProcessBuilder │          │ REST + /events WS     │
-│                                         ▼          ▼ (127.0.0.1:24879)     │
-│                          ┌──────────────────┐  ┌───────────────────────┐  │
-│                          │ libgolibrespot.so│  │ GoLibrespotApiClient   │  │
-│                          │ (go-librespot,   │◄─┤ (OkHttp)               │  │
-│                          │  child process)  │  └───────────────────────┘  │
-│                          └────────┬─────────┘                             │
-│                                   │ raw s16le PCM, 44.1kHz stereo          │
-│                                   ▼ (named pipe / FIFO)                    │
-│                          ┌──────────────────┐                             │
-│                          │  PipeAudioPlayer │──► AudioTrack ──► speakers   │
-│                          └──────────────────┘                             │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+Repository: https://github.com/SEKY443/Android-LibreThing
 
-Why a subprocess instead of Gomobile/JNI bindings: `go-librespot` already ships exactly the
-integration points this needs out of the box — an `audio_backend: pipe` driver that writes raw
-PCM to a named pipe, and a REST + WebSocket API (`server.enabled`) for control and now-playing
-state. Shipping the daemon as a plain ELF binary and driving it over those two interfaces is
-far less code than re-plumbing its internals through Gomobile, and it's the same shape the
-[`Windows build`](https://github.com/SEKY443/go-librespot-termux/blob/master/CROSS_COMPILE.md)
-already uses (CGO + vcpkg + a target-specific `CC`) — this project targets Android instead of
-`mingw`.
+## What it can do
 
-- **`GoProcessController`** launches the binary and parses its logrus output into the log
-  console.
-- **`PipeAudioPlayer`** creates the FIFO, and feeds the bytes it reads into a streaming
-  `AudioTrack`.
-- **`GoLibrespotApiClient`** talks to the daemon's loopback-only API server for status, events,
-  and playback control (play/pause/next/prev/volume).
-- **`SpotifyConnectServiceState`** is the single-process state hub the Compose UI observes and
-  issues commands through — see its kdoc for why binding wasn't used.
+- **Works like a real Spotify Connect device** — appears automatically to any Spotify app on the
+  same Wi-Fi network, or you can sign in directly.
+- **Runs in the background**, even with the screen off, so the device can sit in a corner like an
+  actual speaker.
+- **Two dashboard styles**: a clean "now playing" screen by default, or a more detailed classic
+  layout for people who want more visible controls.
+- **Fake sleep** — dims the screen to pure black while still playing, to protect OLED screens
+  from burn-in and stop the display from being a distraction. Fades to black automatically after
+  a period of inactivity, or trigger it yourself with one tap.
+- **Auto-restart** — if the background player crashes for any reason, it restarts itself
+  automatically instead of just going silent.
+- **Light/dark themes** and a few background styles (plain, pure black, or a blurred version of
+  the album art).
+- **A log screen** if something isn't working, so you can see what's going on instead of guessing.
 
-The daemon binary is shipped as `app/src/main/jniLibs/<abi>/libgolibrespot.so` — named like a
-shared library purely so Android's installer extracts it into the app's native library
-directory with the execute bit set. It's a plain executable, not a `.so`.
+## What you'll need
 
-## Prerequisites
+- An Android phone or tablet running **Android 7.0 or newer**.
+- The same Wi-Fi network for the Librething device and whatever you're casting from.
+- A speaker or headphones plugged into (or built into) that device.
 
-- **Android Studio** (or just the Gradle wrapper + a JDK 21) for the app itself.
-- **Go** (https://go.dev/dl/) and the **Android NDK** (installed via Android Studio's SDK
-  Manager) for the native daemon build.
-- `git`, `cmake`, `pkg-config` on `PATH` — `go-librespot` links `libvorbis`/`libflac`/`mpg123`
-  via CGO, and `scripts/build-go-native.sh` uses [vcpkg](https://vcpkg.io) (bootstrapped
-  automatically into `native/vcpkg`) to build Android versions of them.
+## Building it
 
-## 1. Build the native daemon
+There's no ready-made download yet — for now, building it yourself is the only way to get it
+onto your device. It sounds more intimidating than it is; you're mostly just running a couple of
+scripts.
 
-```shell
-export ANDROID_NDK_HOME=$HOME/Library/Android/sdk/ndk/<installed-version>
-./scripts/build-go-native.sh
-```
+**You'll need:** [Android Studio](https://developer.android.com/studio) (which also installs the
+Android SDK/NDK for you), and the [Go](https://go.dev/dl/) programming language.
 
-This clones `SEKY443/go-librespot-termux`, builds `libvorbis`/`libflac`/`mpg123` for each
-Android ABI via vcpkg, cross-compiles `cmd/daemon` against them with the NDK's `clang`, and
-writes:
+1. **Download this project** (`git clone` it, or use Android Studio's "Get from VCS").
+2. **Build the audio engine.** This project plays music using `go-librespot`, an open-source
+   Spotify Connect implementation, compiled to run directly on Android. Open a terminal in the
+   project folder and run:
 
-```
-app/src/main/jniLibs/arm64-v8a/libgolibrespot.so   # real devices (the common case)
-app/src/main/jniLibs/armeabi-v7a/libgolibrespot.so # older 32-bit devices
-app/src/main/jniLibs/x86_64/libgolibrespot.so      # emulator
-```
+   ```shell
+   export ANDROID_NDK_HOME=$HOME/Library/Android/sdk/ndk/<your-installed-version>
+   ./scripts/build-go-native.sh
+   ```
 
-Build just one ABI with `./scripts/build-go-native.sh arm64-v8a`. Re-run the script any time
-you want to pick up upstream fork changes (it does a `git fetch` + hard reset to `master`, or
-set `GO_LIBRESPOT_REF` to pin a tag/commit) — the reset is deliberate and safe to rely on: it
-always lands on a clean copy of that ref before applying the patches in `scripts/patches/`
-(see that directory's README for what they do and why), so the daemon source under `native/`
-never needs to be hand-edited.
+   This downloads and compiles everything needed automatically — it just takes a few minutes.
+   (Not sure of your NDK version/path? Open Android Studio → Settings → Languages & Frameworks →
+   Android SDK → SDK Tools tab, and check what's installed under "NDK".)
 
-## 2. Build and install the app
+3. **Open the project in Android Studio** and press Run, with your Android device connected over
+   USB (with [USB debugging](https://developer.android.com/studio/debug/dev-options) turned on).
 
-```shell
-./gradlew assembleDebug
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
+   Or, to build an installable file instead:
 
-or open the project in Android Studio and run it normally — the jniLibs built in step 1 are
-picked up automatically, no manifest/Gradle changes needed.
+   ```shell
+   ./gradlew assembleDebug
+   ```
 
-## 3. First run
+   This produces a few files under `app/build/outputs/apk/debug/` — install
+   `app-arm64-v8a-debug.apk` on most modern phones, or `app-universal-debug.apk` if you're not
+   sure which one fits (bigger file, but works everywhere).
 
-1. Launch the app, grant the notification permission prompt (Android 13+).
-2. On the **Settings** tab, set a device name and tap **Disable battery optimization for this
-   app** — without this Android will eventually suspend the daemon in the background.
-3. On the **Dashboard** tab, tap **Start**. The status indicator moves to *Discoverable* once
-   the daemon's Zeroconf/mDNS advertisement is up.
-4. Open Spotify on any device on the same Wi-Fi network — the phone should appear as a Connect
-   speaker.
+## Setting it up the first time
 
-The **log console** on the Dashboard streams the daemon's own logrus output in real time
-(filterable by level, with copy/clear actions) — check it first if discovery or playback isn't
-working.
+1. Open the app and allow the notification permission when asked (needed to show what's
+   currently playing).
+2. Go to **Settings** and give your device a name — this is what shows up in Spotify's device
+   list.
+3. Still in Settings, tap **"Disable battery optimization for this app"**. Without this, Android
+   will eventually pause the app in the background and Spotify Connect will stop working after a
+   while.
+4. Back on the main screen, tap the power button to start it. Once it says **"On standby"**,
+   it's ready.
+5. Open Spotify on any device on the same Wi-Fi, tap the Connect icon (bottom-left, looks like a
+   speaker with a wifi symbol), and your device should appear in the list.
 
-## Tested status
+That's it — pick a song and it'll start playing through your device's speaker.
 
-Verified end-to-end on an arm64-v8a emulator (API 37): the daemon binary launches with a real
-cross-compiled `libgolibrespot.so`, loads its generated config, binds its loopback API server,
-the app's WebSocket client connects to `/events`, and the daemon resolves and reaches Spotify's
-real access-point/dealer/spclient infrastructure over the network. Three real bugs surfaced and
-were fixed by this testing, all still relevant if you're changing this code:
+## Everyday use
 
-- `GoLibrespotApiClient.getStatus()` didn't catch the `ConnectException` that's expected while
-  the daemon is still starting up — crashed the app on every cold start. Covered by
-  `GoLibrespotApiClientTest`.
-- The daemon needs `$HOME` set in its process environment: Go's `os.UserConfigDir()` runs
-  unconditionally while `cmd/daemon` computes the *default* value for `--config_dir`, before it
-  ever looks at the `--config_dir` override this app always passes — and Android app processes
-  don't have `$HOME` set. See the comment in `GoProcessController.start()`.
-- Access points default to port 4070, which the emulator's (and plenty of real) networks block
-  outbound; `prefer_firewall_friendly_ports: true` is now always set in the generated config.
+- **Play / pause / skip** — same controls you'd expect, right on the main screen.
+- **Volume** — drag the volume slider, or use your device's physical volume buttons.
+- **Fake sleep** — tap the moon icon (or it happens automatically) to blank the screen while
+  keeping the music going; tap the screen again to wake it back up.
+- **Settings** are grouped by what they affect — Dashboard look, screen behavior in landscape,
+  playback quality, how it connects to Spotify, and general app behavior like autostart and the
+  crash-recovery toggle mentioned above.
+- If something's not working, open the **log** (the terminal icon) to see what the app is
+  actually doing — it's the fastest way to tell whether it's a Wi-Fi problem, a login problem, or
+  something else.
 
-**Fixed — client-token request (`scripts/patches/android-clienttoken.patch`)**: `session.NewSession`
-unconditionally requests a Spotify client token before any credential flow can proceed, and on
-Android that request was failing with an opaque, empty-body `400`. Two independent real bugs,
-both patched:
+## Where the audio engine comes from
 
-1. `session/client_token.go` built its `POST` as a raw `&http.Request{}` literal with the body
-   wrapped in `io.NopCloser`, which hides the underlying `*bytes.Reader`'s length from
-   `net/http`'s auto-detection. Left at its zero value, `ContentLength` defaults to 0, so Go's
-   `Transport` sent `Content-Length: 0` while still writing the real body afterward — a
-   malformed request that Spotify's edge rejects before its application logic ever sees it,
-   with no error body (which is exactly the symptom observed). Fixed by building the request
-   with `http.NewRequest` instead, which sets `ContentLength`, `Host`, `GetBody`, and
-   `Proto`/`ProtoMajor`/`ProtoMinor` correctly.
-2. `platform.go`'s `GetOS`/`GetPlatform`/`GetPlatformSpecificData` reported native Android
-   identity (`OS_ANDROID`, `PLATFORM_ANDROID_ARM`, `NativeAndroidData`) for `GOOS=android`.
-   Verified in isolation (same request, varying only this field, sent from a plain desktop Go
-   program) that Spotify's client-token endpoint accepts this project's client ID as a Linux
-   client but rejects it — still with an empty `400` — as a native Android one; it's evidently
-   only approved for desktop platforms. Fixed by reporting Linux identity for `GOOS=android`
-   throughout, the same as this fork's normal Termux/proot (`GOOS=linux`) build would.
+Librething doesn't reimplement Spotify Connect itself — all of that comes from
+[**go-librespot**](https://github.com/devgianlu/go-librespot) by
+[**devgianlu**](https://github.com/devgianlu), a well-established, open-source Spotify Connect
+player. This app builds that engine to run natively on Android and wraps it in a proper mobile
+UI, background service, and settings screen.
 
-With both fixes, `credentials.type: interactive` (or `spotify_token`) now runs all the way
-through: the daemon obtains a real client token and prints a genuine
-`https://accounts.spotify.com/authorize?...` URL to log in with. Verified on-device, repeatably,
-across clean reinstalls.
+This project actually started as **go-librespot-termux**, a way to run `go-librespot` on Android
+through Termux — a workaround, not a real app. After seeing dedicated Spotify Connect gadgets
+like the Car Thing, it made more sense to build this into an actual Android app instead: same
+underlying engine, but running natively with its own interface, no Termux needed. The engine is
+still built from that fork
+([`SEKY443/go-librespot-termux`](https://github.com/SEKY443/go-librespot-termux)), which carries
+a handful of Android-specific fixes — most of which have since been contributed back upstream.
 
-**Fixed — zeroconf itself (`scripts/patches/android-zeroconf.patch`)**: `credentials.type:
-zeroconf` (and `zeroconf_enabled: true` generally) used to fail unconditionally.
-`zeroconf/backend_builtin.go` calls `github.com/grandcat/zeroconf`'s `Register()`, which
-enumerates interfaces via Go's `net.Interfaces()` — on Linux/Android that's netlink-only, and
-Android's SELinux policy denies untrusted apps `bind` on `netlink_route_socket` (visible in
-`logcat` as `avc: denied { bind } ... tclass=netlink_route_socket`). The obvious non-netlink
-fallbacks don't work either — reading `/sys/class/net` or `/proc/net/*` directly is *also*
-SELinux-denied for untrusted apps (confirmed on-device) — so the daemon process itself has no
-way to discover its network interface on Android by any mechanism.
+## A quick licensing note
 
-The real fix sources this from the Android app instead: `ConnectivityManager` and
-`java.net.NetworkInterface` work fine in the exact same process/SELinux context (confirmed
-on-device — real interface name, index, and IPv4 address/prefix, where the Go-side equivalents
-fail), because they're serviced by `system_server` over Binder rather than a raw netlink/sysfs
-read from app userspace. `GoLibrespotConfigWriter` resolves this once per daemon launch and
-passes it into four new config fields; the daemon uses them to skip `net.Interfaces()` /
-`net.InterfaceByName()` entirely and register via `zeroconf.RegisterProxy` instead. See
-`scripts/patches/README.md`'s `android-zeroconf.patch` section for the full mechanism.
-
-Verified on-device, repeatably: with Zeroconf discovery enabled, the daemon reaches
-**Discoverable** and stays there — confirmed through a multi-minute soak test with no crash and
-no further SELinux denials once startup completes. The app's earlier workaround (Settings:
-Zeroconf off, Interactive/Cached-token authentication) still works and is left in place as an
-alternative, but is no longer necessary.
-
-**On the "random crashes" reported during earlier testing**: with zeroconf now actually working,
-a multi-minute on-device soak test (Zeroconf enabled, app in the foreground, `adb logcat`
-monitored continuously) showed the daemon process staying alive throughout, with no `FATAL
-EXCEPTION`, `Fatal signal`, ANR, or unexplained process death. Earlier apparent hangs/crashes are
-consistent with what was already root-caused before this fix: the daemon failing fast on the
-zeroconf fatal error above (`main.go`'s `log.Fatal`, process exit code 1) reads, from the outside,
-like the app going silent — no further log lines are the process actually being gone, not a hang.
-No separate, still-unexplained crash was found; if a new one turns up, capture the log console
-output (Dashboard's copy button) and the `adb logcat` output around the time of the drop.
-
-## Licensing note
-
-`go-librespot` is **GPLv3**. This project ships it as a separate, unmodified-at-runtime
-executable that the app launches as a subprocess and talks to over a pipe and a loopback HTTP
-API — not linked into the app's own code — which is the same "mere aggregation" shape as
-shipping any other GPL command-line tool alongside a program. If you distribute a build of this
-app, you're expected to also make the corresponding `go-librespot` source available (the
-upstream repo URL and ref used are recorded in `scripts/build-go-native.sh`) and not impose
-restrictions that block someone from rebuilding/replacing that binary. This isn't legal advice;
-if you plan to publish the app, have someone qualified confirm your specific distribution
-channel is fine with that.
+`go-librespot` is licensed under **GPLv3**. This app ships it as a separate program that it
+launches and talks to — it isn't merged into the app's own code. If you build and share a copy of
+this app, you're expected to also make the corresponding `go-librespot` source available (see
+`scripts/build-go-native.sh` for the exact version used) and not stop anyone from rebuilding or
+swapping out that engine themselves. This isn't legal advice — if you're planning to publish this
+more widely, it's worth having someone qualified confirm that's fine for wherever you're
+distributing it.
