@@ -58,10 +58,6 @@ Spotify on your other device. It keeps running in the background like a dedicate
 
 ## Building it
 
-There's no ready-made download yet — for now, building it yourself is the only way to get it
-onto your device. It sounds more intimidating than it is; you're mostly just running a couple of
-scripts.
-
 **You'll need:** [Android Studio](https://developer.android.com/studio) (which also installs the
 Android SDK/NDK for you), and the [Go](https://go.dev/dl/) programming language.
 
