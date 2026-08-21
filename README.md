@@ -11,7 +11,7 @@ Spotify on your other device. It keeps running in the background like a dedicate
 ## What it can do
 
 - **Works like a real Spotify Connect device** — appears automatically to any Spotify app on the
-  same Wi-Fi network, or you can sign in directly to use it in different a network.
+  same Wi-Fi network, or you can sign in directly to use it in a different network.
 - **Runs in the background**, even with the screen off, so the device can sit in a corner like an
   actual speaker. (which is exactly how I use my own setup)
 - **Material Express style player** - transfer your phone into a Car thing like device.
