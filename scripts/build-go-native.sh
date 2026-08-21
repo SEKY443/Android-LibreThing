@@ -135,24 +135,18 @@ for ABI in "${ABIS[@]}"; do
     [ -n "$GOARM" ] && export GOARM="$GOARM"
     export CC="$CC"
     export PKG_CONFIG_PATH="$PKG_CONFIG_PATH"
-    # Android requires 16KB-aligned ELF LOAD segments on recent OS versions
-    # (https://developer.android.com/16kb-page-size); without this the binary still runs
-    # (via a compatibility shim) but the OS flags it as non-compliant. max-page-size alone
-    # only stamps the p_align header field -- common-page-size is what actually makes the
-    # linker pad segment file offsets to the 16KB boundary.
-    # -linkmode=external forces the host clang/lld to produce the final ELF (otherwise Go's
-    # own internal linker may run instead, in which case -extldflags is silently ignored and
-    # the page-size flags below have no effect).
-    # separate-code makes lld actually insert page-aligned gaps between segments of
-    # different permissions instead of just stamping p_align in the header; without it the
-    # max/common-page-size values are recorded but not acted on. This gets LOAD segments
-    # fully 16KB-file-offset-aligned except for the last one (Go's BSS/heap-reservation
-    # segment, whose start is pinned by where the previous GNU_RELRO region's own rounding
-    # ends) -- that residual case is a known rough edge in Go's external-linking output on
-    # Android and only affects the OS's page-size *compatibility check*, not correctness:
-    # Android's page-size-compat shim loads it either way.
+    # NOT 16KB-page-aligned (see git history for the attempt): Android 15+'s 16KB-page-size
+    # compliance flags (-z max-page-size=16384 etc.) left the last LOAD segment (Go's
+    # BSS/heap-reservation segment) imperfectly aligned -- a known rough edge in Go's
+    # external-linking output. That's silently absorbed by Android's page-size-compat shim,
+    # but that shim only exists on Android 15+; on older versions (confirmed on Android 11)
+    # the malformed segment boundary makes the linker's own GNU_RELRO mprotect() call fail
+    # outright with ENOMEM, so the daemon never starts at all. Actual 16KB-page-size hardware
+    # is still essentially nonexistent, and that same compat shim transparently handles a
+    # plain 4KB-aligned binary like this one when it *does* show up -- so standard alignment
+    # is strictly the more broadly compatible choice today.
     go build -trimpath \
-      -ldflags="-s -w -linkmode=external -extldflags=-Wl,-z,max-page-size=16384,-z,common-page-size=16384,-z,separate-code" \
+      -ldflags="-s -w" \
       -o "$OUT_DIR/libgolibrespot.so" ./cmd/daemon
   )
   chmod 755 "$OUT_DIR/libgolibrespot.so"
