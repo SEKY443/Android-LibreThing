@@ -8,8 +8,6 @@ just open Spotify on your phone or laptop, tap the Connect icon, pick the device
 starts playing through whatever speaker or headphones are plugged into it — even after you close
 Spotify on your other device. It keeps running in the background like a dedicated speaker would.
 
-Repository: https://github.com/SEKY443/Android-LibreThing
-
 ## Screenshots
 
 <table>
