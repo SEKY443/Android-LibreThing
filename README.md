@@ -1,6 +1,6 @@
 # Librething
 
-Turn an old Android (**Android 7.0 (API 24) or newer**) phone or tablet into a **Spotify Connect receiver** — the kind that shows up
+Turn an old Android (**Android 7.0 or newer**) phone or tablet into a **Spotify Connect receiver** — the kind that shows up
 right inside the Spotify app as a device you can send music to, no cable or pairing required.
 
 Librething runs the real Spotify Connect protocol on the device itself. Once it's set up, you
