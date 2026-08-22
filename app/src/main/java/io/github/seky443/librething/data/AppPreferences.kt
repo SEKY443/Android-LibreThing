@@ -25,6 +25,7 @@ data class AppPreferences(
     val landscapeStretchTransportRowEnabled: Boolean = true,
     val autoRestartOnCrashEnabled: Boolean = true,
     val fakeSleepSingleTapWakeEnabled: Boolean = false,
+    val maskTrackTransitionFlashEnabled: Boolean = true,
 )
 
 enum class ThemeMode(val wireValue: String, @param:StringRes val labelRes: Int) {

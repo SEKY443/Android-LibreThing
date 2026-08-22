@@ -35,3 +35,6 @@ keystore.properties
 # OS
 .DS_Store
 Thumbs.db
+
+# Local-only release notes draft -- not part of the public repo.
+/RELEASE_NOTES.md

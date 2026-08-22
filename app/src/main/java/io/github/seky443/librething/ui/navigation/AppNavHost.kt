@@ -26,6 +26,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -235,13 +236,23 @@ private fun SimpleModeNavHost(dashboardViewModel: DashboardViewModel, onSuppress
         // two screens being mutually exclusive and popping abruptly at the gesture's end.
         SimpleDashboardScreen(viewModel = dashboardViewModel, onOpenSettings = openSettings)
 
-        if (showSettings || settingsBackProgress.value > 0f) {
-            val progress = settingsBackProgress.value
+        // Gates whether the overlay is emitted at all, so it has to be read directly in the
+        // composable body -- but wrapped in derivedStateOf so that read only invalidates this
+        // scope on the rare frames where the boolean itself flips (gesture start/end), not on
+        // every one of settingsBackProgress's per-frame ticks in between. The progress-dependent
+        // transform below reads settingsBackProgress.value again, but from inside graphicsLayer's
+        // lambda, which samples state at draw time without recomposing -- reading it out here
+        // instead (as this used to) meant every animation frame recomposed this whole
+        // composable, including the full SettingsScreen tree mounted underneath, which is what
+        // made the open/close animation stutter.
+        val showOverlay by remember { derivedStateOf { showSettings || settingsBackProgress.value > 0f } }
+        if (showOverlay) {
             val edgeSign = if (settingsBackEdge == BackEventCompat.EDGE_LEFT) 1f else -1f
             Box(
                 Modifier
                     .fillMaxSize()
                     .graphicsLayer {
+                        val progress = settingsBackProgress.value
                         val dragProgress = progress.coerceIn(0f, 1f)
                         val finishProgress = ((progress - 1f) / 0.5f).coerceIn(0f, 1f)
                         val scale = 1f - dragProgress * 0.1f - finishProgress * 0.15f

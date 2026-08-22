@@ -572,10 +572,6 @@ internal fun VolumeSlider(
     // Coarser than volMax's real resolution (often 65535 steps) -- this only paces the haptic
     // "detents" to something felt as discrete clicks, not the value actually sent on release.
     var lastHapticStep by remember { mutableStateOf(-1) }
-    LaunchedEffect(committedFraction) {
-        val dragged = dragFraction ?: return@LaunchedEffect
-        if (abs(committedFraction - dragged) < 0.02f) dragFraction = null
-    }
 
     // Genuinely remote-origin changes (another Connect client, or the daemon's own echo) --
     // as opposed to a hardware volume key, which shows instantly via localOverrideFraction
@@ -586,9 +582,24 @@ internal fun VolumeSlider(
     // moment that override let go, display would jump back to the stale value and visibly
     // animate forward again -- exactly the "plays an animation by itself a moment later" glitch
     // this replaced. Animating only ever starts once nothing local is overriding it.
+    //
+    // Convergence-clearing dragFraction and deciding snap-vs-animate used to be two separate
+    // LaunchedEffects both keyed on committedFraction, with no guarantee which one's write
+    // Compose would observe first once the daemon's echo confirms the drag. If the "clear
+    // dragFraction" write landed before the "snap to the new value" one had a chance to run
+    // against the now-converged committedFraction, the slider would go stale at the pre-drag
+    // value for one frame -- visible as exactly the "jump back, then replay" glitch this whole
+    // mechanism exists to prevent. Doing both in one effect body guarantees the snap always
+    // happens before dragFraction clears, in the same coroutine, so there's nothing left to race.
     val animatedCommittedFraction = remember { Animatable(committedFraction) }
     LaunchedEffect(committedFraction, dragFraction, localOverrideFraction) {
-        if (dragFraction != null || localOverrideFraction != null) {
+        val dragged = dragFraction
+        if (dragged != null && abs(committedFraction - dragged) < CONVERGENCE_THRESHOLD) {
+            animatedCommittedFraction.snapTo(committedFraction)
+            dragFraction = null
+            return@LaunchedEffect
+        }
+        if (dragged != null || localOverrideFraction != null) {
             animatedCommittedFraction.snapTo(committedFraction)
         } else {
             animatedCommittedFraction.animateTo(committedFraction, animationSpec = tween(250, easing = FastOutSlowInEasing))
@@ -619,3 +630,4 @@ internal fun VolumeSlider(
 }
 
 private const val HAPTIC_STEPS = 20
+private const val CONVERGENCE_THRESHOLD = 0.02f

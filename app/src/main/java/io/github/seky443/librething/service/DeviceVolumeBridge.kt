@@ -20,29 +20,25 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * Keeps the device's `STREAM_MUSIC` volume and the daemon's reported Spotify Connect volume
- * (0..[io.github.seky443.librething.service.model.PlayerStatus.volumeSteps], reported via
- * [SpotifyConnectServiceState.volume]) mirroring each other, so a connected Bluetooth speaker's
- * hardware volume controls (routed by Android to `STREAM_MUSIC` via AVRCP) move the in-app
- * volume too, and vice versa.
+ * One-directional bridge from the device's `STREAM_MUSIC` volume to the daemon's reported
+ * Spotify Connect volume (0..[io.github.seky443.librething.service.model.PlayerStatus.volumeSteps],
+ * reported via [SpotifyConnectServiceState.volume]): a connected Bluetooth speaker's hardware
+ * volume controls (routed by Android to `STREAM_MUSIC` via AVRCP) move the in-app volume too.
  *
- * The daemon still applies its own volume as PCM gain (see [GoLibrespotConfigWriter]'s comment on
- * why `external_volume` isn't set), so `STREAM_MUSIC` isn't the only gain stage -- both move
- * together, just on a steeper combined curve than either alone. Both directions are guarded by
- * comparing the freshly-converted target against the other side's current value before writing,
- * which is enough to prevent feedback loops without tracking "who changed it last": once a value
- * is applied, the echoed update converts back to the same value and the guard no-ops.
+ * Deliberately *not* bidirectional -- remote-driven changes (this app's own slider, or another
+ * Spotify Connect client) used to be mirrored back onto `STREAM_MUSIC` as well, but
+ * `STREAM_MUSIC` only has a handful of discrete steps (commonly ~15) against the daemon's own
+ * 100, so converting a precise remote value down to the nearest device step and writing it
+ * introduced a small but audible correction shortly after every remote-driven change -- and on a
+ * Bluetooth speaker, where `STREAM_MUSIC` drives the actual analog gain via AVRCP, that rounding
+ * step is a real, physical volume jump, not just an internal recalculation. Dropping that
+ * direction trades away a speaker's own volume display/knob position tracking remote-driven
+ * changes (it now only moves from its own physical buttons) for eliminating that jump entirely.
  *
  * Device-side changes are debounced: holding a hardware/Bluetooth volume key fires a burst of
  * `STREAM_MUSIC` broadcasts (one per step), and posting straight through -- one blocking HTTP
- * call per step, each followed by an echoed "volume" event that nudges the stream again -- was
- * visibly janky. Only the value left after a short quiet period is actually sent.
- *
- * That echo is also suppressed for a short window after a device-originated push: without it,
- * an echo for an *earlier* push (still in flight when the key was pressed again) can land after
- * the device has already moved further and snap it back to the stale value -- visible as the
- * slider jumping around while a volume key is held. During the window the device side is treated
- * as authoritative; the next echo after the window closes catches things up once they settle.
+ * call per step -- was visibly janky. Only the value left after a short quiet period is actually
+ * sent.
  *
  * Also persists the daemon's reported volume (as a 0f..1f fraction, portable across whatever
  * `volume_steps` is configured) via [settingsRepository], fed back in as `initial_volume` on the
@@ -64,17 +60,12 @@ internal class DeviceVolumeBridge(
     /** Latest STREAM_MUSIC value not yet pushed to the daemon; null means nothing pending. */
     private val pendingDeviceVolume = MutableStateFlow<Int?>(null)
 
-    /** [SystemClock.elapsedRealtime] of the last device-originated push; see class kdoc. */
-    @Volatile private var lastDevicePushAtMs = 0L
-
     fun start() {
         if (audioManager == null) return
 
-        // Off the main thread: AudioManager calls are Binder round-trips, and this fires on
-        // every daemon-reported volume change, including the echoes of our own pushes below.
+        // Off the main thread: AudioManager calls are Binder round-trips.
         remoteObserverJob = scope.launch(Dispatchers.Default) {
             SpotifyConnectServiceState.volume.collect { (value, max) ->
-                applyToDevice(value, max)
                 if (max > 0) {
                     withContext(Dispatchers.IO) { settingsRepository.setLastVolumeFraction(value.toFloat() / max) }
                     // The daemon has caught up to what the instant local-feedback override
@@ -135,20 +126,6 @@ internal class DeviceVolumeBridge(
         receiver = null
     }
 
-    private fun applyToDevice(remoteValue: Int, remoteMax: Int) {
-        val manager = audioManager ?: return
-        if (remoteMax <= 0) return
-        if (SystemClock.elapsedRealtime() - lastDevicePushAtMs < SUPPRESS_ECHO_MS) return
-        val deviceMax = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-        val target = ((remoteValue.toDouble() / remoteMax) * deviceMax).roundToInt().coerceIn(0, deviceMax)
-        if (target == manager.getStreamVolume(AudioManager.STREAM_MUSIC)) return
-        try {
-            manager.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
-        } catch (_: SecurityException) {
-            // Some OEMs restrict STREAM_MUSIC changes under active Do Not Disturb policies.
-        }
-    }
-
     private fun applyToRemote(deviceValue: Int) {
         val manager = audioManager ?: return
         val deviceMax = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
@@ -157,13 +134,11 @@ internal class DeviceVolumeBridge(
         if (remoteMax <= 0) return
         val target = ((deviceValue.toDouble() / deviceMax) * remoteMax).roundToInt().coerceIn(0, remoteMax)
         if (target == currentRemote) return
-        lastDevicePushAtMs = SystemClock.elapsedRealtime()
         SpotifyConnectServiceState.setVolumeCommand(target)
     }
 
     private companion object {
         const val DEBOUNCE_MS = 200L
-        const val SUPPRESS_ECHO_MS = 1000L
         const val CONVERGED_THRESHOLD = 0.02f
         const val LOCAL_OVERRIDE_TIMEOUT_MS = 3000L
 

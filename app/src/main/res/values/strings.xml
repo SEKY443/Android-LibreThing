@@ -59,6 +59,8 @@
     <string name="settings_hide_fake_sleep_button_title">Hide fake sleep button</string>
     <string name="settings_volume_slider_label">Volume slider</string>
     <string name="settings_show_volume_slider_title">Show volume slider</string>
+    <string name="settings_mask_track_transition_flash_title">Hide flash between tracks</string>
+    <string name="settings_mask_track_transition_flash_subtitle">Technically a glitch: go-librespot briefly reports idle between an auto-advanced track and the next one. The flash looks kind of cool, so instead of just fixing it, turn this off to see it</string>
 
     <!-- SettingsScreen.kt: Landscape section -->
     <string name="settings_section_landscape">Landscape</string>

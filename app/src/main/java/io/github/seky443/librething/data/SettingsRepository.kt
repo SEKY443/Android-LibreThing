@@ -51,6 +51,7 @@ class SettingsRepository(private val context: Context) {
         val LANDSCAPE_STRETCH_TRANSPORT_ROW_ENABLED = booleanPreferencesKey("landscape_stretch_transport_row_enabled")
         val AUTO_RESTART_ON_CRASH_ENABLED = booleanPreferencesKey("auto_restart_on_crash_enabled")
         val FAKE_SLEEP_SINGLE_TAP_WAKE_ENABLED = booleanPreferencesKey("fake_sleep_single_tap_wake_enabled")
+        val MASK_TRACK_TRANSITION_FLASH_ENABLED = booleanPreferencesKey("mask_track_transition_flash_enabled")
         val LAST_VOLUME_FRACTION = floatPreferencesKey("last_volume_fraction")
         val LAST_SESSION_END_AT_MILLIS = longPreferencesKey("last_session_end_at_millis")
     }
@@ -119,6 +120,7 @@ class SettingsRepository(private val context: Context) {
             landscapeStretchTransportRowEnabled = prefs[Keys.LANDSCAPE_STRETCH_TRANSPORT_ROW_ENABLED] ?: defaults.landscapeStretchTransportRowEnabled,
             autoRestartOnCrashEnabled = prefs[Keys.AUTO_RESTART_ON_CRASH_ENABLED] ?: defaults.autoRestartOnCrashEnabled,
             fakeSleepSingleTapWakeEnabled = prefs[Keys.FAKE_SLEEP_SINGLE_TAP_WAKE_ENABLED] ?: defaults.fakeSleepSingleTapWakeEnabled,
+            maskTrackTransitionFlashEnabled = prefs[Keys.MASK_TRACK_TRANSITION_FLASH_ENABLED] ?: defaults.maskTrackTransitionFlashEnabled,
         )
     }
 
@@ -179,6 +181,7 @@ class SettingsRepository(private val context: Context) {
                 landscapeStretchTransportRowEnabled = prefs[Keys.LANDSCAPE_STRETCH_TRANSPORT_ROW_ENABLED] ?: AppPreferences().landscapeStretchTransportRowEnabled,
                 autoRestartOnCrashEnabled = prefs[Keys.AUTO_RESTART_ON_CRASH_ENABLED] ?: AppPreferences().autoRestartOnCrashEnabled,
                 fakeSleepSingleTapWakeEnabled = prefs[Keys.FAKE_SLEEP_SINGLE_TAP_WAKE_ENABLED] ?: AppPreferences().fakeSleepSingleTapWakeEnabled,
+                maskTrackTransitionFlashEnabled = prefs[Keys.MASK_TRACK_TRANSITION_FLASH_ENABLED] ?: AppPreferences().maskTrackTransitionFlashEnabled,
             )
             val updated = transform(existing)
             prefs[Keys.KEEP_SCREEN_ON] = updated.keepScreenOn
@@ -201,6 +204,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.LANDSCAPE_STRETCH_TRANSPORT_ROW_ENABLED] = updated.landscapeStretchTransportRowEnabled
             prefs[Keys.AUTO_RESTART_ON_CRASH_ENABLED] = updated.autoRestartOnCrashEnabled
             prefs[Keys.FAKE_SLEEP_SINGLE_TAP_WAKE_ENABLED] = updated.fakeSleepSingleTapWakeEnabled
+            prefs[Keys.MASK_TRACK_TRANSITION_FLASH_ENABLED] = updated.maskTrackTransitionFlashEnabled
         }
     }
 }

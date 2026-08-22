@@ -227,6 +227,12 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                 checked = !config.disableAutoplay,
                 onCheckedChange = { viewModel.updateConfig { c -> c.copy(disableAutoplay = !it) } },
             )
+            SwitchRow(
+                title = stringResource(R.string.settings_mask_track_transition_flash_title),
+                subtitle = stringResource(R.string.settings_mask_track_transition_flash_subtitle),
+                checked = appPrefs.maskTrackTransitionFlashEnabled,
+                onCheckedChange = { viewModel.updateAppPreferences { p -> p.copy(maskTrackTransitionFlashEnabled = it) } },
+            )
         }
 
         SettingsSection(title = stringResource(R.string.settings_section_discovery_auth)) {

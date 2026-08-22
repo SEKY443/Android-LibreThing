@@ -11,18 +11,48 @@ import io.github.seky443.librething.service.model.ConnectionState
 import io.github.seky443.librething.service.model.LogEntry
 import io.github.seky443.librething.service.model.TrackInfo
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 
 class DashboardViewModel(application: Application) : AndroidViewModel(application) {
 
     private val settingsRepository = (application as GoLibrespotApplication).settingsRepository
 
-    val connectionState: StateFlow<ConnectionState> = SpotifyConnectServiceState.connectionState
-    val nowPlaying: StateFlow<TrackInfo?> = SpotifyConnectServiceState.nowPlaying
+    // On a natural end-of-track auto-advance, the daemon emits a "not_playing" event for the
+    // finished track *before* it has anything loaded for the next one, which the app maps to
+    // ConnectionState.Discoverable + nowPlaying = null -- briefly showing the idle screen until
+    // the next track's own events arrive a moment later. A manual skip never emits that
+    // intermediate event, going straight from the old track to the new one, so it never shows
+    // this. Some people like the flash (it is honestly kind of neat); maskTrackTransitionFlashEnabled
+    // lets the rest hide it instead of the daemon behavior being changed outright: while enabled,
+    // a transition through Discoverable is held un-emitted for a grace window in case it's just
+    // this gap, so the dashboard keeps showing the previous track until either the next one's
+    // events arrive (no flash at all) or the window elapses, meaning it's a real stop.
+    private val maskedConnectionAndTrack: StateFlow<Pair<ConnectionState, TrackInfo?>> = combine(
+        SpotifyConnectServiceState.connectionState,
+        SpotifyConnectServiceState.nowPlaying,
+        settingsRepository.appPreferences.map { it.maskTrackTransitionFlashEnabled },
+    ) { state, track, maskEnabled -> Triple(state, track, maskEnabled) }
+        .transformLatest { (state, track, maskEnabled) ->
+            if (maskEnabled && state == ConnectionState.Discoverable) {
+                delay(TRACK_TRANSITION_MASK_WINDOW_MS)
+            }
+            emit(state to track)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ConnectionState.Idle to null)
+
+    val connectionState: StateFlow<ConnectionState> = maskedConnectionAndTrack
+        .map { it.first }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ConnectionState.Idle)
+    val nowPlaying: StateFlow<TrackInfo?> = maskedConnectionAndTrack
+        .map { it.second }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     val volume: StateFlow<Pair<Int, Int>> = SpotifyConnectServiceState.volume
     val localDeviceVolumeFraction: StateFlow<Float?> = SpotifyConnectServiceState.localDeviceVolumeFraction
     val isServiceRunning: StateFlow<Boolean> = SpotifyConnectServiceState.isServiceRunning
@@ -94,5 +124,13 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         } else {
             BlackScreenOverlayController.requestPermission(context)
         }
+    }
+
+    private companion object {
+        // Comfortably longer than a prefetched track swap typically takes, so the mask reliably
+        // absorbs the auto-advance gap without regularly timing out and showing Discoverable
+        // anyway; long enough on a real stop that it's a deliberate tradeoff, not a bug -- see
+        // maskedConnectionAndTrack.
+        const val TRACK_TRANSITION_MASK_WINDOW_MS = 1500L
     }
 }

@@ -85,7 +85,11 @@ class PipeAudioPlayer(
                     .setEncoding(ENCODING)
                     .build()
             )
-            .setBufferSizeInBytes(minBufferBytes * 4)
+            // 2x rather than 4x the platform minimum: daemon-side volume changes are baked
+            // into PCM before it ever reaches this buffer (see driver-pipe.go), so whatever
+            // is already sitting in here plays out at the old volume -- a smaller buffer
+            // trades some underrun margin for a shorter worst-case volume-change delay.
+            .setBufferSizeInBytes(minBufferBytes * 2)
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
 
