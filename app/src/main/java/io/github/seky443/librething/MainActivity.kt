@@ -114,24 +114,38 @@ class MainActivity : ComponentActivity() {
                 var lastNonPlayingState: ConnectionState? = null
                 var lastNapState: ConnectionState? = null
                 var lastNapTrackUri: String? = null
-                // kotlinx.coroutines' typed combine() overloads top out at 5 flows -- nested one
-                // level so the settings themselves (4 flows) fold into one AutoSleepSignal
-                // before joining connectionState/nowPlaying, rather than reaching for the
-                // untyped vararg overload for just one extra flow.
-                val settingsSignalFlow = combine(
+                // kotlinx.coroutines' typed combine() overloads top out at 5 flows -- split the
+                // now-6 settings flows into two groups of 3, each within that limit, then merge
+                // those two before joining connectionState/nowPlaying, rather than reaching for
+                // the untyped vararg overload.
+                val autoSleepFlow = combine(
                     settingsRepository.appPreferences.map { it.autoSleepOnIdleEnabled }.distinctUntilChanged(),
                     settingsRepository.appPreferences.map { it.autoSleepIdleDelaySeconds }.distinctUntilChanged(),
                     settingsRepository.appPreferences.map { it.autoSleepNapModeEnabled }.distinctUntilChanged(),
+                ) { enabled, delaySeconds, napMode -> Triple(enabled, delaySeconds, napMode) }
+                val gestureSettingsFlow = combine(
                     settingsRepository.appPreferences.map { it.fakeSleepSingleTapWakeEnabled }.distinctUntilChanged(),
-                ) { enabled, delaySeconds, napMode, singleTapWake ->
-                    AutoSleepSettings(enabled, delaySeconds, napMode, singleTapWake)
+                    settingsRepository.appPreferences.map { it.gestureControlsEnabled }.distinctUntilChanged(),
+                    settingsRepository.appPreferences.map { it.gestureHapticIntensity }.distinctUntilChanged(),
+                ) { singleTapWake, gestureControls, hapticIntensity -> Triple(singleTapWake, gestureControls, hapticIntensity) }
+                val settingsSignalFlow = combine(autoSleepFlow, gestureSettingsFlow) { autoSleep, gesture ->
+                    AutoSleepSettings(autoSleep.first, autoSleep.second, autoSleep.third, gesture.first, gesture.second, gesture.third)
                 }
                 val signalFlow = combine(
                     settingsSignalFlow,
                     SpotifyConnectServiceState.connectionState,
                     SpotifyConnectServiceState.nowPlaying,
                 ) { settings, state, track ->
-                    AutoSleepSignal(settings.enabled, settings.delaySeconds, settings.napModeEnabled, settings.singleTapWakeEnabled, state, track?.uri)
+                    AutoSleepSignal(
+                        settings.enabled,
+                        settings.delaySeconds,
+                        settings.napModeEnabled,
+                        settings.singleTapWakeEnabled,
+                        settings.gestureControlsEnabled,
+                        settings.gestureHapticIntensity,
+                        state,
+                        track?.uri,
+                    )
                 }
                 // lastInteractionAtMillis isn't folded into the signal itself -- combining it in
                 // here only needs to restart the idle countdown below (collectLatest cancels the
@@ -150,7 +164,13 @@ class MainActivity : ComponentActivity() {
                             lastNapTrackUri = signal.trackUri
                             delay(signal.delaySeconds * 1000L)
                             if (!BlackScreenOverlayController.isShowing && BlackScreenOverlayController.canShow(this@MainActivity)) {
-                                BlackScreenOverlayController.show(this@MainActivity, animate = true, wakeOnSingleTap = signal.singleTapWakeEnabled)
+                                BlackScreenOverlayController.show(
+                                    this@MainActivity,
+                                    animate = true,
+                                    wakeOnSingleTap = signal.singleTapWakeEnabled,
+                                    gestureControlsEnabled = signal.gestureControlsEnabled,
+                                    gestureHapticIntensity = signal.gestureHapticIntensity,
+                                )
                             }
                             return@collectLatest
                         }
@@ -169,7 +189,13 @@ class MainActivity : ComponentActivity() {
                         lastNonPlayingState = signal.connectionState
                         delay(signal.delaySeconds * 1000L)
                         if (!BlackScreenOverlayController.isShowing && BlackScreenOverlayController.canShow(this@MainActivity)) {
-                            BlackScreenOverlayController.show(this@MainActivity, animate = true, wakeOnSingleTap = signal.singleTapWakeEnabled)
+                            BlackScreenOverlayController.show(
+                                this@MainActivity,
+                                animate = true,
+                                wakeOnSingleTap = signal.singleTapWakeEnabled,
+                                gestureControlsEnabled = signal.gestureControlsEnabled,
+                                gestureHapticIntensity = signal.gestureHapticIntensity,
+                            )
                         }
                     }
             }
@@ -194,6 +220,8 @@ class MainActivity : ComponentActivity() {
         val delaySeconds: Int,
         val napModeEnabled: Boolean,
         val singleTapWakeEnabled: Boolean,
+        val gestureControlsEnabled: Boolean,
+        val gestureHapticIntensity: Float,
     )
 
     private data class AutoSleepSignal(
@@ -201,6 +229,8 @@ class MainActivity : ComponentActivity() {
         val delaySeconds: Int,
         val napModeEnabled: Boolean,
         val singleTapWakeEnabled: Boolean,
+        val gestureControlsEnabled: Boolean,
+        val gestureHapticIntensity: Float,
         val connectionState: ConnectionState,
         val trackUri: String?,
     )

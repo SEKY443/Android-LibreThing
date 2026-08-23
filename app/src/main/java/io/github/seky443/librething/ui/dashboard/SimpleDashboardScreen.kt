@@ -3,6 +3,7 @@ package io.github.seky443.librething.ui.dashboard
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
@@ -13,6 +14,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -65,14 +68,19 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
@@ -84,12 +92,17 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import android.content.Context
 import android.content.res.Configuration
+import android.os.VibrationEffect
+import android.os.Vibrator
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -112,14 +125,228 @@ import io.github.seky443.librething.service.model.ConnectionState
 import io.github.seky443.librething.service.model.LogEntry
 import io.github.seky443.librething.service.model.LogLevel
 import io.github.seky443.librething.service.model.TrackInfo
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** Width of the cover-art card as a fraction of the available content width (portrait) --
  * also used by [TransportControlsRow] so the transport row lines up edge-to-edge with the
  * card above it instead of spanning the full column width. */
 private const val MediaCardWidthFraction = 0.78f
+
+// Gesture-drag haptic tuning lives in GestureHaptics, shared with BlackScreenOverlayController's
+// own copy of the same gestures on the fake-sleep overlay.
+
+// MediaCard's swipe-to-skip cover transition (scale/slide, see triggerCoverSkipTransition).
+private const val COVER_TRANSITION_EXIT_SCALE = 0.75f
+private const val COVER_TRANSITION_SCALE_MS = 160
+private const val COVER_TRANSITION_SLIDE_MS = 200
+private const val COVER_TRANSITION_WAIT_TIMEOUT_MS = 4000L
+// Fraction of the card's own width, not a pixel value -- resolved against the actual
+// graphicsLayer size in coverSkipTransition. >1 so the cover fully clears the card at any
+// aspect before the entrance animation snaps it to the opposite side.
+private const val COVER_TRANSITION_OFFSET_MAGNITUDE = 1.3f
+// The *drag itself* is damped, not the post-release animations: instead of snapping the scale
+// exactly to the raw drag distance every tick, it chases that live target with critically-damped
+// spring physics (no bounce, dampingRatio 1) -- gives the shrink some resistance/weight under
+// the finger rather than pinning to it 1:1.
+private val CoverTransitionDragChaseSpring = spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 300f)
+
+/** Scale/slide for [MediaCard]'s swipe-to-skip cover transition -- graphicsLayer reads the
+ * Animatables at draw time only, so the rest of the card doesn't recompose every animation
+ * frame (see AppNavHost's Settings-panel stutter fix for why that matters). */
+private fun Modifier.coverSkipTransition(scale: Animatable<Float, AnimationVector1D>, offsetFraction: Animatable<Float, AnimationVector1D>): Modifier =
+    this.graphicsLayer {
+        scaleX = scale.value
+        scaleY = scale.value
+        translationX = offsetFraction.value * size.width
+    }
+
+/**
+ * Full-screen counterpart to [MediaCard]'s own cover-scoped swipe/double-tap gestures, behind
+ * `AppPreferences.gestureControlsFullScreenEnabled` -- same double-tap/skip/volume behavior, just
+ * anywhere on the dashboard instead of only the cover art, including the same live shrink-while-
+ * dragging preview and release-triggered slide MediaCard's own gesture drives (via the same
+ * shared coverTransitionScale/coverTransitionOffset/isCoverTransitioningState -- see
+ * SimpleDashboardScreen). A deliberately separate copy rather than sharing MediaCard's
+ * implementation outright: that one is threaded through at several specific points to drive the
+ * cover-shrink animation's state, and generalizing that coupling risked destabilizing a gesture
+ * path that had already broken (and been fixed) more than once earlier in this feature's life.
+ * This one instead requires every pointer event to still be unconsumed as it goes, bailing the
+ * instant a descendant (a button, the volume slider, the console's own scrolling) claims the
+ * touch, so it only ever fires on parts of the screen nothing else is already handling. See the
+ * call site for why that's safe to assume: this modifier lives on the page's outermost Box, an
+ * ancestor of every other interactive element on it, and Compose dispatches pointer events to
+ * descendants first within a pass.
+ */
+private fun Modifier.fullScreenPlaybackGestures(
+    vibrator: Vibrator,
+    haptics: HapticFeedback,
+    hapticIntensity: () -> Float,
+    volume: () -> Pair<Int, Int>,
+    onPlayPause: () -> Unit,
+    onNext: () -> Unit,
+    onPrevious: () -> Unit,
+    onVolumeChange: (Int) -> Unit,
+    // Cover-shrink animation, shared with MediaCard's own on-cover gesture (see
+    // SimpleDashboardScreen's lifted coverTransitionScale/coverTransitionOffset/
+    // isCoverTransitioningState) -- coverDragScope drives the live damped chase below the same
+    // way MediaCard's own ACTION_MOVE handling does, since AwaitPointerEventScope can't directly
+    // await Animatable.animateTo itself.
+    coverTransitionScale: Animatable<Float, AnimationVector1D>,
+    coverDragScope: CoroutineScope,
+    isCoverTransitioningState: MutableState<Boolean>,
+    triggerCoverSkipTransition: (exitDirection: Float) -> Unit,
+    springCoverBack: () -> Unit,
+): Modifier = pointerInput(Unit) {
+    val skipThresholdPx = 72.dp.toPx()
+    val volumeJitterThresholdPx = 24.dp.toPx()
+    val doubleTapTimeoutMillis = viewConfiguration.doubleTapTimeoutMillis
+    val touchSlopPx = viewConfiguration.touchSlop
+    var lastTapUpMillis = 0L
+
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = true)
+        var pointerId = down.id
+        var totalDragX = 0f
+        var totalDragY = 0f
+        var isDrag = false
+        val dragStartVolume = volume().first
+        var lastHapticStep = -1
+        var skipHapticFired = false
+
+        while (true) {
+            val event = awaitPointerEvent()
+            val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+            // Something else (a button, the slider, the console's own scroll) already claimed
+            // this touch sequence -- back off entirely rather than also acting on it.
+            if (change.isConsumed) break
+            if (!change.pressed) {
+                if (isDrag) {
+                    if (abs(totalDragX) > abs(totalDragY)) {
+                        if (abs(totalDragX) > skipThresholdPx) {
+                            if (totalDragX < 0) {
+                                triggerCoverSkipTransition(-COVER_TRANSITION_OFFSET_MAGNITUDE)
+                                onNext()
+                            } else {
+                                triggerCoverSkipTransition(COVER_TRANSITION_OFFSET_MAGNITUDE)
+                                onPrevious()
+                            }
+                        } else {
+                            // Let go before committing -- spring the live-shrunk cover back to
+                            // full size instead of leaving it stuck mid-shrink.
+                            springCoverBack()
+                        }
+                    } else if (abs(totalDragY) > volumeJitterThresholdPx) {
+                        val max = volume().second
+                        if (max > 0) {
+                            val target = (dragStartVolume - (totalDragY / size.height) * max).roundToInt().coerceIn(0, max)
+                            onVolumeChange(target)
+                        }
+                    }
+                } else if (change.uptimeMillis - lastTapUpMillis <= doubleTapTimeoutMillis) {
+                    haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                    onPlayPause()
+                    lastTapUpMillis = 0L
+                } else {
+                    lastTapUpMillis = change.uptimeMillis
+                }
+                break
+            }
+
+            val posChange = change.position - change.previousPosition
+            totalDragX += posChange.x
+            totalDragY += posChange.y
+            if (!isDrag && (abs(totalDragX) > touchSlopPx || abs(totalDragY) > touchSlopPx)) {
+                isDrag = true
+            }
+            if (isDrag) {
+                change.consume()
+                if (abs(totalDragY) > abs(totalDragX)) {
+                    // A drag that started leaning horizontal (shrinking the cover live) can still
+                    // turn out to be a volume adjustment once the finger moves more vertically --
+                    // spring the cover back rather than leaving it stuck shrunk while volume
+                    // takes over, matching MediaCard's own on-cover gesture.
+                    springCoverBack()
+                    val max = volume().second
+                    if (max > 0) {
+                        val target = (dragStartVolume - (totalDragY / size.height) * max).roundToInt().coerceIn(0, max)
+                        val step = target * GestureHaptics.HAPTIC_STEPS / max
+                        if (step != lastHapticStep) {
+                            lastHapticStep = step
+                            val fraction = target.toFloat() / max.toFloat()
+                            val curve = GestureHaptics.MIN_VOLUME_HAPTIC_SCALE + fraction * (1f - GestureHaptics.MIN_VOLUME_HAPTIC_SCALE)
+                            GestureHaptics.vibratePrimitive(
+                                vibrator,
+                                VibrationEffect.Composition.PRIMITIVE_TICK,
+                                curve * hapticIntensity(),
+                                GestureHaptics.VOLUME_HAPTIC_DURATION_MS,
+                                GestureHaptics.VOLUME_HAPTIC_FALLBACK_AMPLITUDE,
+                            )
+                        }
+                    }
+                } else {
+                    // Live preview: shrinks with how far the finger has moved, damped the same
+                    // way MediaCard's own on-cover gesture is (see CoverTransitionDragChaseSpring)
+                    // -- launched, not awaited inline, since AwaitPointerEventScope can't directly
+                    // call a suspend function like Animatable.animateTo.
+                    val dragProgress = (abs(totalDragX) / skipThresholdPx).coerceIn(0f, 1f)
+                    if (dragProgress > 0f) isCoverTransitioningState.value = true
+                    coverDragScope.launch {
+                        coverTransitionScale.animateTo(
+                            1f - dragProgress * (1f - COVER_TRANSITION_EXIT_SCALE),
+                            CoverTransitionDragChaseSpring,
+                        )
+                    }
+
+                    val pastThreshold = abs(totalDragX) > skipThresholdPx
+                    if (pastThreshold && !skipHapticFired) {
+                        skipHapticFired = true
+                        GestureHaptics.vibratePrimitive(
+                            vibrator,
+                            VibrationEffect.Composition.PRIMITIVE_CLICK,
+                            hapticIntensity(),
+                            GestureHaptics.SKIP_HAPTIC_DURATION_MS,
+                            GestureHaptics.SKIP_HAPTIC_FALLBACK_AMPLITUDE,
+                        )
+                    } else if (!pastThreshold) {
+                        skipHapticFired = false
+                    }
+                }
+            }
+            pointerId = change.id
+        }
+    }
+}
+
+// Deliberately more than could ever fit any realistic card, so there's always enough to overflow
+// the available height rather than run short -- the trade for guaranteeing that is the top entry
+// sometimes getting clipped mid-row.
+private const val TRANSITION_CONSOLE_PEEK_LINES = 40
+
+/** A lighter stand-in for [ConsoleLogList] behind the cover-skip transition (see [MediaCard]):
+ * just the tail of whatever [logs] currently is, no scroll state/LazyColumn/level filtering --
+ * those exist for the console button's actual full view, not a few hundred milliseconds of peek
+ * behind a shrinking cover. Renders each entry via the exact same [LogEntryRow] that view uses,
+ * so the two look identical rather than just similar. Recomposes for free as [logs] updates.
+ *
+ * Bottom-aligned with deliberately more entries than could ever fit, so it reliably fills the
+ * frame. */
+@Composable
+private fun TransitionConsolePeek(logs: List<LogEntry>, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp, alignment = Alignment.Bottom),
+    ) {
+        logs.takeLast(TRANSITION_CONSOLE_PEEK_LINES).forEach { entry -> LogEntryRow(entry) }
+    }
+}
 
 /**
  * The default Dashboard UI (see [io.github.seky443.librething.data.AppPreferences.nerdModeEnabled]):
@@ -150,6 +377,11 @@ fun SimpleDashboardScreen(
     val landscapeStretchTransportRowEnabled by viewModel.landscapeStretchTransportRowEnabled.collectAsState()
     val lastSessionEndAtMillis by viewModel.lastSessionEndAtMillis.collectAsState()
     val dashboardBackgroundStyle by viewModel.dashboardBackgroundStyle.collectAsState()
+    val gestureControlsEnabled by viewModel.gestureControlsEnabled.collectAsState()
+    val gestureHapticIntensity by viewModel.gestureHapticIntensity.collectAsState()
+    val gestureTransitionShowConsoleEnabled by viewModel.gestureTransitionShowConsoleEnabled.collectAsState()
+    val gestureTransitionRoundedCoverEnabled by viewModel.gestureTransitionRoundedCoverEnabled.collectAsState()
+    val gestureControlsFullScreenEnabled by viewModel.gestureControlsFullScreenEnabled.collectAsState()
     val haptics = LocalHapticFeedback.current
     val context = LocalContext.current
 
@@ -240,12 +472,96 @@ fun SimpleDashboardScreen(
         MaterialTheme.colorScheme
     }
 
+    // Only actually built when the full-screen gesture area setting is on -- everyone else
+    // pays nothing for it.
+    val fullScreenGestureVibrator = if (gestureControlsFullScreenEnabled) remember { GestureHaptics.vibratorFor(context) } else null
+
+    // Swipe-to-skip's cover-art transition, lifted up here (out of MediaCard) so both MediaCard's
+    // own on-cover gesture and fullScreenPlaybackGestures below (a swipe starting anywhere else on
+    // screen) can trigger the exact same shrink/slide animation -- see MediaCard's kdoc comment on
+    // its coverTransitionScale/coverTransitionOffset/isCoverTransitioningState parameters for the
+    // full behavior description.
+    val coverTransitionScale = remember { Animatable(1f) }
+    val coverTransitionOffset = remember { Animatable(0f) }
+    val isCoverTransitioningState = remember { mutableStateOf(false) }
+    var isCoverTransitioning by isCoverTransitioningState
+    var coverTransitionJob by remember { mutableStateOf<Job?>(null) }
+    val coverTransitionScope = rememberCoroutineScope()
+    val currentTrackUri by rememberUpdatedState(track?.uri)
+
+    fun triggerCoverSkipTransition(exitDirection: Float) {
+        coverTransitionJob?.cancel()
+        coverTransitionJob = coverTransitionScope.launch {
+            isCoverTransitioning = true
+            val trackAtStart = currentTrackUri
+            // Scale's own damped chase toward the drag distance (see MediaCard's ACTION_MOVE
+            // handling) may still be a little behind at the exact moment of release -- finish it
+            // instantly here rather than let the tail of that catch-up play out alongside the
+            // slide-out below. A full-screen-gesture skip has no such chase (it commits straight
+            // from the release), so this snap is a no-op there.
+            coverTransitionScale.snapTo(COVER_TRANSITION_EXIT_SCALE)
+            coverTransitionOffset.animateTo(exitDirection, tween(COVER_TRANSITION_SLIDE_MS, easing = FastOutSlowInEasing))
+            // Bounded wait for the actual track change (a skip can be a no-op, e.g. at the end
+            // of a non-repeating queue) -- past the timeout, just settle back as if nothing
+            // happened rather than leaving the cover stranded off-screen.
+            withTimeoutOrNull(COVER_TRANSITION_WAIT_TIMEOUT_MS) {
+                snapshotFlow { currentTrackUri }.first { it != trackAtStart }
+            }
+            coverTransitionOffset.snapTo(-exitDirection)
+            coverTransitionScale.snapTo(COVER_TRANSITION_EXIT_SCALE)
+            // Mirrored on the way in: slide back to center while still small, then grow.
+            coverTransitionOffset.animateTo(0f, tween(COVER_TRANSITION_SLIDE_MS, easing = FastOutSlowInEasing))
+            coverTransitionScale.animateTo(1f, tween(COVER_TRANSITION_SCALE_MS, easing = FastOutSlowInEasing))
+            isCoverTransitioning = false
+        }
+    }
+
+    // Springs a live-shrunk (but not yet committed) cover back to full size -- reached both when
+    // a horizontal drag on the cover lets go before crossing the skip threshold, and when the
+    // drag turns out to be a volume adjustment instead. No-ops if a spring-back is already in
+    // flight, so repeated calls while e.g. still dragging vertically don't keep restarting it from
+    // scratch every tick. Never called from fullScreenPlaybackGestures -- that gesture only ever
+    // commits a skip on release, it has no live mid-drag shrink to spring back from.
+    fun springCoverBack() {
+        if (!isCoverTransitioning || coverTransitionJob?.isActive == true) return
+        coverTransitionJob = coverTransitionScope.launch {
+            coverTransitionScale.animateTo(1f, tween(COVER_TRANSITION_SCALE_MS, easing = FastOutSlowInEasing))
+            isCoverTransitioning = false
+        }
+    }
+
     MaterialTheme(colorScheme = contentColorScheme, typography = MaterialTheme.typography) {
     // Text with no explicit `color` (the title, notably) falls back to LocalContentColor, not
     // colorScheme.onBackground -- MaterialTheme doesn't set that on its own (only Surface
     // does), and its own platform default is plain black, invisible on a black background.
     CompositionLocalProvider(LocalContentColor provides contentColorScheme.onBackground) {
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        // Ancestor of every button/slider/console on the page, not a sibling -- Compose
+        // dispatches pointer events to descendants first within a pass, so a button's own click
+        // recognizer gets first claim on a touch landing on it (and consumes it) before this
+        // gesture detector, further up the tree, ever sees it. fullScreenPlaybackGestures checks
+        // for exactly that consumption and backs off, so it only ever fires on parts of the
+        // screen nothing else already claimed.
+        modifier = if (gestureControlsEnabled && gestureControlsFullScreenEnabled && hasTrack && fullScreenGestureVibrator != null) {
+            Modifier.fillMaxSize().fullScreenPlaybackGestures(
+                vibrator = fullScreenGestureVibrator,
+                haptics = haptics,
+                hapticIntensity = { gestureHapticIntensity },
+                volume = { volume },
+                onPlayPause = viewModel::playPause,
+                onNext = viewModel::next,
+                onPrevious = viewModel::previous,
+                onVolumeChange = viewModel::setVolume,
+                coverTransitionScale = coverTransitionScale,
+                coverDragScope = coverTransitionScope,
+                isCoverTransitioningState = isCoverTransitioningState,
+                triggerCoverSkipTransition = ::triggerCoverSkipTransition,
+                springCoverBack = ::springCoverBack,
+            )
+        } else {
+            Modifier.fillMaxSize()
+        },
+    ) {
         // Blurred-cover mode paints the album art itself (heavily blurred and darkened) as
         // the page background instead of a flat tint; falls back to the normal flat
         // pageBackground when idle/no art, same as the other two styles. Crossfaded like the
@@ -297,6 +613,21 @@ fun SimpleDashboardScreen(
                         logs = logs,
                         track = track,
                         containerAccent = containerAccent,
+                        gestureControlsEnabled = gestureControlsEnabled,
+                        gestureHapticIntensity = gestureHapticIntensity,
+                        gestureTransitionShowConsoleEnabled = gestureTransitionShowConsoleEnabled,
+                        gestureTransitionRoundedCoverEnabled = gestureTransitionRoundedCoverEnabled,
+                        hasTrack = hasTrack,
+                        volume = volume,
+                        onPlayPause = viewModel::playPause,
+                        onNext = viewModel::next,
+                        onPrevious = viewModel::previous,
+                        onVolumeChange = viewModel::setVolume,
+                        coverTransitionScale = coverTransitionScale,
+                        coverTransitionOffset = coverTransitionOffset,
+                        isCoverTransitioningState = isCoverTransitioningState,
+                        triggerCoverSkipTransition = ::triggerCoverSkipTransition,
+                        springCoverBack = ::springCoverBack,
                     )
                     // Idle shows when the last session ended; there's no "next track" data to
                     // show while playing -- the daemon only ever logs its prefetch, it doesn't
@@ -363,22 +694,36 @@ fun SimpleDashboardScreen(
                 logs = logs,
                 track = track,
                 containerAccent = containerAccent,
+                gestureControlsEnabled = gestureControlsEnabled,
+                gestureHapticIntensity = gestureHapticIntensity,
+                gestureTransitionShowConsoleEnabled = gestureTransitionShowConsoleEnabled,
+                gestureTransitionRoundedCoverEnabled = gestureTransitionRoundedCoverEnabled,
+                hasTrack = hasTrack,
+                volume = volume,
+                onPlayPause = viewModel::playPause,
+                onNext = viewModel::next,
+                onPrevious = viewModel::previous,
+                onVolumeChange = viewModel::setVolume,
+                coverTransitionScale = coverTransitionScale,
+                coverTransitionOffset = coverTransitionOffset,
+                isCoverTransitioningState = isCoverTransitioningState,
+                triggerCoverSkipTransition = ::triggerCoverSkipTransition,
+                springCoverBack = ::springCoverBack,
             )
             Spacer(modifier = Modifier.height(16.dp))
-            // Idle shows when the last session ended; there's no "next track" data to show
-            // while playing -- the daemon only ever logs its prefetch, it doesn't publish an
-            // event/status field for it (checked against both the /events types and the
-            // /status schema).
-            if (!hasTrack) {
-                Text(
-                    text = lastSessionLabel(lastSessionEndAtMillis),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-            }
+            // Idle shows the last-session label here; while playing there's no equivalent
+            // "next track" data to show (the daemon only ever logs its prefetch, it doesn't
+            // publish an event/status field for it -- checked against both the /events types
+            // and the /status schema). Kept laid out but invisible instead of omitted so the
+            // title/artist below don't jump up when a track starts playing.
+            Text(
+                text = lastSessionLabel(lastSessionEndAtMillis),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().alpha(if (hasTrack) 0f else 1f),
+            )
+            Spacer(modifier = Modifier.height(16.dp))
             NowPlayingInfoAndControls(
                 track = track,
                 connectionState = connectionState,
@@ -423,19 +768,80 @@ private fun MediaCard(
     logs: List<LogEntry>,
     track: TrackInfo?,
     containerAccent: Color,
+    gestureControlsEnabled: Boolean = false,
+    gestureHapticIntensity: Float = 1f,
+    gestureTransitionShowConsoleEnabled: Boolean = false,
+    gestureTransitionRoundedCoverEnabled: Boolean = true,
+    hasTrack: Boolean = false,
+    volume: Pair<Int, Int> = 0 to 0,
+    onPlayPause: () -> Unit = {},
+    onNext: () -> Unit = {},
+    onPrevious: () -> Unit = {},
+    onVolumeChange: (Int) -> Unit = {},
+    // Cover-skip transition state/triggers, lifted up to SimpleDashboardScreen so
+    // fullScreenPlaybackGestures can drive the exact same animation as this card's own gesture
+    // below -- see that function's kdoc.
+    coverTransitionScale: Animatable<Float, AnimationVector1D> = remember { Animatable(1f) },
+    coverTransitionOffset: Animatable<Float, AnimationVector1D> = remember { Animatable(0f) },
+    isCoverTransitioningState: MutableState<Boolean> = remember { mutableStateOf(false) },
+    triggerCoverSkipTransition: (Float) -> Unit = {},
+    springCoverBack: () -> Unit = {},
 ) {
     var activeLevels by remember { mutableStateOf(LogLevel.entries.toSet()) }
     var showConsoleOptions by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
     val context = LocalContext.current
 
+
+    // Compose's HapticFeedbackType has no amplitude control -- it always plays a fixed,
+    // device-defined effect. The volume drag wants its "detent" to physically feel louder as
+    // the target volume climbs, which needs the raw Vibrator API instead.
+    val vibrator = remember { GestureHaptics.vibratorFor(context) }
+
+    // Read fresh inside the gesture coroutines below despite pointerInput(Unit) never
+    // restarting them -- otherwise they'd keep closing over whatever these were on first launch.
+    val currentVolume by rememberUpdatedState(volume)
+    val currentHapticIntensity by rememberUpdatedState(gestureHapticIntensity)
+    val currentOnPlayPause by rememberUpdatedState(onPlayPause)
+    val currentOnNext by rememberUpdatedState(onNext)
+    val currentOnPrevious by rememberUpdatedState(onPrevious)
+    val currentOnVolumeChange by rememberUpdatedState(onVolumeChange)
+
+    // Swipe-to-skip's own cover-art transition: shrinks and slides the outgoing cover off in the
+    // swipe direction (revealing the card's plain black background underneath, not the themed
+    // containerAccent -- see cardModifier below), then once the new track's cover actually shows
+    // up, slides the replacement in from the opposite side and back up to full size. Purely
+    // decorative on top of Crossfade's own cover-art cross-dissolve (which still runs when the
+    // albumCoverUrl itself changes) -- this only drives scale/position, graphicsLayer-read so it
+    // doesn't recompose the rest of the card every frame (see AppNavHost's Settings-panel fix for
+    // why that matters). Triggered on release, not live mid-drag -- an earlier attempt to fire it
+    // (and next()/previous()) the instant the drag crossed the skip threshold caused runaway
+    // repeat skips, so this stays release-triggered until that's root-caused. State and the two
+    // trigger functions now live in the caller (SimpleDashboardScreen) so fullScreenPlaybackGestures
+    // can drive this same animation from a swipe that starts anywhere on screen, not just on the
+    // cover -- see this function's coverTransitionScale/coverTransitionOffset/
+    // isCoverTransitioningState/triggerCoverSkipTransition/springCoverBack parameters. The live
+    // damped drag-chase below (see ACTION_MOVE handling) stays purely local, though -- it's driven
+    // straight off this card's own drag, fullScreenPlaybackGestures has no equivalent live phase.
+    var isCoverTransitioning by isCoverTransitioningState
+    val coverTransitionScope = rememberCoroutineScope()
+
     val cardModifier = modifier
         .clip(RoundedCornerShape(28.dp))
-        .background(if (effectiveShowConsole) ConsoleBackground else containerAccent)
+        .background(
+            when {
+                isCoverTransitioning -> Color.Black
+                effectiveShowConsole -> ConsoleBackground
+                else -> containerAccent
+            },
+        )
     Box(
         // Long-press only wired up in console mode -- cover art has nothing to filter or copy.
         // No tap handler (the toggle button is where the "long-press for options" hint lives,
-        // see SimpleDashboardScreen) -- a plain tap here does nothing.
+        // see SimpleDashboardScreen) -- a plain tap here does nothing, other than the gesture
+        // controls below when those are on. Console mode never gets gestures even if enabled --
+        // the log list needs vertical drags for its own scrolling, and long-press is already
+        // spoken for by the options sheet.
         modifier = if (effectiveShowConsole) {
             cardModifier.combinedClickable(
                 onClick = {},
@@ -444,10 +850,171 @@ private fun MediaCard(
                     showConsoleOptions = true
                 },
             )
+        } else if (gestureControlsEnabled && hasTrack) {
+            // A single hand-rolled recognizer instead of separate detectTapGestures +
+            // detectDragGestures pointerInput blocks -- two independent detectors chained on the
+            // same node compete over the same touch stream (the drag detector's own touch-slop
+            // consumption can starve the tap detector of events it needs), which made both
+            // double-tap and swipes unreliable in practice. One state machine per gesture avoids
+            // that entirely: it classifies drag-vs-tap itself via touch slop, and double-tap via
+            // a plain timestamp comparison between successive taps (Android's own double-tap
+            // timeout, not a fixed guess) instead of relying on two detectors to cooperate.
+            cardModifier.pointerInput(Unit) {
+                val skipThresholdPx = 72.dp.toPx()
+                val volumeJitterThresholdPx = 24.dp.toPx()
+                val doubleTapTimeoutMillis = viewConfiguration.doubleTapTimeoutMillis
+                val touchSlopPx = viewConfiguration.touchSlop
+                var lastTapUpMillis = 0L
+
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    var pointerId = down.id
+                    var totalDragX = 0f
+                    var totalDragY = 0f
+                    var isDrag = false
+                    val dragStartVolume = currentVolume.first
+                    var lastHapticStep = -1
+                    // Fires once, live, the moment the swipe crosses the skip threshold -- not
+                    // repeated on every subsequent move tick while still past it, and reset if
+                    // the drag comes back under threshold so crossing again re-fires it.
+                    var skipHapticFired = false
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                        if (!change.pressed) {
+                            // Consumed unconditionally, not just on a drag -- a plain tap release
+                            // used to fall through unconsumed, which let fullScreenPlaybackGestures
+                            // (an ancestor of this card once that setting is on) independently see
+                            // the same up event and track its own double-tap timing on top of this
+                            // one, firing onPlayPause() a second time a moment after this gesture's
+                            // own call and toggling straight back. Consuming here makes this
+                            // gesture the sole owner of any touch that started on the cover,
+                            // matching how a drag already behaved.
+                            change.consume()
+                            if (isDrag) {
+                                if (abs(totalDragX) > abs(totalDragY)) {
+                                    if (abs(totalDragX) > skipThresholdPx) {
+                                        if (totalDragX < 0) {
+                                            triggerCoverSkipTransition(-COVER_TRANSITION_OFFSET_MAGNITUDE)
+                                            currentOnNext()
+                                        } else {
+                                            triggerCoverSkipTransition(COVER_TRANSITION_OFFSET_MAGNITUDE)
+                                            currentOnPrevious()
+                                        }
+                                    } else {
+                                        // Let go before committing -- spring the live-shrunk
+                                        // cover back to full size instead of leaving it stuck
+                                        // mid-shrink.
+                                        springCoverBack()
+                                    }
+                                } else if (abs(totalDragY) > volumeJitterThresholdPx) {
+                                    val max = currentVolume.second
+                                    if (max > 0) {
+                                        val target = (dragStartVolume - (totalDragY / size.height) * max).roundToInt().coerceIn(0, max)
+                                        currentOnVolumeChange(target)
+                                    }
+                                }
+                            } else if (change.uptimeMillis - lastTapUpMillis <= doubleTapTimeoutMillis) {
+                                haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                                currentOnPlayPause()
+                                lastTapUpMillis = 0L
+                            } else {
+                                lastTapUpMillis = change.uptimeMillis
+                            }
+                            break
+                        }
+
+                        val posChange = change.position - change.previousPosition
+                        totalDragX += posChange.x
+                        totalDragY += posChange.y
+                        if (!isDrag && (abs(totalDragX) > touchSlopPx || abs(totalDragY) > touchSlopPx)) {
+                            isDrag = true
+                        }
+                        if (isDrag) {
+                            change.consume()
+                            // Live feedback only -- the daemon/callbacks aren't told anything
+                            // until release above, same tradeoff as VolumeSlider's own drag
+                            // handling (see its kdoc): a call per pixel of drag is what makes
+                            // dragging feel stuttery.
+                            if (abs(totalDragY) > abs(totalDragX)) {
+                                // A drag that started leaning horizontal (shrinking the cover
+                                // live) can still turn out to be a volume adjustment once the
+                                // finger moves more vertically -- spring the cover back rather
+                                // than leaving it stuck shrunk while volume takes over.
+                                springCoverBack()
+                                val max = currentVolume.second
+                                if (max > 0) {
+                                    val target = (dragStartVolume - (totalDragY / size.height) * max).roundToInt().coerceIn(0, max)
+                                    val step = target * GestureHaptics.HAPTIC_STEPS / max
+                                    if (step != lastHapticStep) {
+                                        lastHapticStep = step
+                                        // Louder as the target volume climbs, so the "detent"
+                                        // itself hints at how loud you're about to make it --
+                                        // then the user's own overall intensity preference on
+                                        // top of that curve.
+                                        val fraction = target.toFloat() / max.toFloat()
+                                        val curve = GestureHaptics.MIN_VOLUME_HAPTIC_SCALE + fraction * (1f - GestureHaptics.MIN_VOLUME_HAPTIC_SCALE)
+                                        GestureHaptics.vibratePrimitive(
+                                            vibrator,
+                                            VibrationEffect.Composition.PRIMITIVE_TICK,
+                                            curve * currentHapticIntensity,
+                                            GestureHaptics.VOLUME_HAPTIC_DURATION_MS,
+                                            GestureHaptics.VOLUME_HAPTIC_FALLBACK_AMPLITUDE,
+                                        )
+                                    }
+                                }
+                            } else {
+                                // Shrinks with how far the finger has moved, but damped rather
+                                // than pinned exactly to it: re-targeting an already-running
+                                // animateTo on every tick makes the value chase the live drag
+                                // distance with a bit of resistance/lag instead of snapping
+                                // straight to it, like it has some weight under the finger.
+                                // Sliding away only happens afterwards, on release (see below).
+                                val dragProgress = (abs(totalDragX) / skipThresholdPx).coerceIn(0f, 1f)
+                                if (dragProgress > 0f) isCoverTransitioning = true
+                                // Launched, not awaited inline: AwaitPointerEventScope is a
+                                // restricted suspend scope, it can't directly call an arbitrary
+                                // suspend function like Animatable.animateTo.
+                                coverTransitionScope.launch {
+                                    coverTransitionScale.animateTo(
+                                        1f - dragProgress * (1f - COVER_TRANSITION_EXIT_SCALE),
+                                        CoverTransitionDragChaseSpring,
+                                    )
+                                }
+
+                                val pastThreshold = abs(totalDragX) > skipThresholdPx
+                                if (pastThreshold && !skipHapticFired) {
+                                    skipHapticFired = true
+                                    // Fixed, firmer than any volume tick -- a "this WILL skip if
+                                    // you let go now" click, not a graded detent.
+                                    GestureHaptics.vibratePrimitive(
+                                        vibrator,
+                                        VibrationEffect.Composition.PRIMITIVE_CLICK,
+                                        currentHapticIntensity,
+                                        GestureHaptics.SKIP_HAPTIC_DURATION_MS,
+                                        GestureHaptics.SKIP_HAPTIC_FALLBACK_AMPLITUDE,
+                                    )
+                                } else if (!pastThreshold) {
+                                    skipHapticFired = false
+                                }
+                            }
+                        }
+                        pointerId = change.id
+                    }
+                }
+            }
         } else {
             cardModifier
         },
     ) {
+        // Plain if, not a Crossfade/AnimatedVisibility -- disappears the instant
+        // isCoverTransitioning goes false (see springCoverBack/triggerCoverSkipTransition), no
+        // lingering fade-out. Drawn first so it sits behind the shrinking cover in the Crossfade
+        // below, showing through the space the cover opens up as it shrinks.
+        if (isCoverTransitioning && gestureTransitionShowConsoleEnabled) {
+            TransitionConsolePeek(logs = logs, modifier = Modifier.fillMaxSize())
+        }
         // Crossfade rather than an instant swap -- covers both the console/cover-art toggle
         // and idle's cover-art/placeholder-icon switch, keyed on whichever of the two is
         // showing so it only replays when the shown content actually changes.
@@ -461,14 +1028,25 @@ private fun MediaCard(
                 AsyncImage(
                     model = ImageRequest.Builder(context).data(albumCoverUrl).crossfade(true).build(),
                     contentDescription = stringResource(R.string.content_desc_album_art),
-                    modifier = Modifier.fillMaxSize(),
+                    // Clipped *after* (inside) the scale/translate transform, not before --
+                    // Modifier chain order puts an earlier .clip() outside the later
+                    // graphicsLayer, so it'd clip a fixed full-size rounded rect around the
+                    // now-shrunk image instead of shrinking with it, making it invisible (the
+                    // small image never reaches those far-away edges). Applied after
+                    // coverSkipTransition instead, the clip sits inside that same layer and gets
+                    // scaled down as part of it. At scale=1 this is a no-op, since the card's own
+                    // outer clip already matches it exactly.
+                    modifier = Modifier.fillMaxSize()
+                        .coverSkipTransition(coverTransitionScale, coverTransitionOffset)
+                        .let { if (gestureTransitionRoundedCoverEnabled) it.clip(RoundedCornerShape(28.dp)) else it },
                     contentScale = ContentScale.Crop,
                 )
             } else {
                 Icon(
                     Icons.Filled.MusicNote,
                     contentDescription = null,
-                    modifier = Modifier.fillMaxSize().wrapContentSize(Alignment.Center).size(64.dp),
+                    modifier = Modifier.fillMaxSize().wrapContentSize(Alignment.Center).size(64.dp)
+                        .coverSkipTransition(coverTransitionScale, coverTransitionOffset),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

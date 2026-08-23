@@ -52,6 +52,11 @@ class SettingsRepository(private val context: Context) {
         val AUTO_RESTART_ON_CRASH_ENABLED = booleanPreferencesKey("auto_restart_on_crash_enabled")
         val FAKE_SLEEP_SINGLE_TAP_WAKE_ENABLED = booleanPreferencesKey("fake_sleep_single_tap_wake_enabled")
         val MASK_TRACK_TRANSITION_FLASH_ENABLED = booleanPreferencesKey("mask_track_transition_flash_enabled")
+        val GESTURE_CONTROLS_ENABLED = booleanPreferencesKey("gesture_controls_enabled")
+        val GESTURE_HAPTIC_INTENSITY = floatPreferencesKey("gesture_haptic_intensity")
+        val GESTURE_TRANSITION_SHOW_CONSOLE_ENABLED = booleanPreferencesKey("gesture_transition_show_console_enabled")
+        val GESTURE_TRANSITION_ROUNDED_COVER_ENABLED = booleanPreferencesKey("gesture_transition_rounded_cover_enabled")
+        val GESTURE_CONTROLS_FULL_SCREEN_ENABLED = booleanPreferencesKey("gesture_controls_full_screen_enabled")
         val LAST_VOLUME_FRACTION = floatPreferencesKey("last_volume_fraction")
         val LAST_SESSION_END_AT_MILLIS = longPreferencesKey("last_session_end_at_millis")
     }
@@ -121,6 +126,11 @@ class SettingsRepository(private val context: Context) {
             autoRestartOnCrashEnabled = prefs[Keys.AUTO_RESTART_ON_CRASH_ENABLED] ?: defaults.autoRestartOnCrashEnabled,
             fakeSleepSingleTapWakeEnabled = prefs[Keys.FAKE_SLEEP_SINGLE_TAP_WAKE_ENABLED] ?: defaults.fakeSleepSingleTapWakeEnabled,
             maskTrackTransitionFlashEnabled = prefs[Keys.MASK_TRACK_TRANSITION_FLASH_ENABLED] ?: defaults.maskTrackTransitionFlashEnabled,
+            gestureControlsEnabled = prefs[Keys.GESTURE_CONTROLS_ENABLED] ?: defaults.gestureControlsEnabled,
+            gestureHapticIntensity = prefs[Keys.GESTURE_HAPTIC_INTENSITY] ?: defaults.gestureHapticIntensity,
+            gestureTransitionShowConsoleEnabled = prefs[Keys.GESTURE_TRANSITION_SHOW_CONSOLE_ENABLED] ?: defaults.gestureTransitionShowConsoleEnabled,
+            gestureTransitionRoundedCoverEnabled = prefs[Keys.GESTURE_TRANSITION_ROUNDED_COVER_ENABLED] ?: defaults.gestureTransitionRoundedCoverEnabled,
+            gestureControlsFullScreenEnabled = prefs[Keys.GESTURE_CONTROLS_FULL_SCREEN_ENABLED] ?: defaults.gestureControlsFullScreenEnabled,
         )
     }
 
@@ -182,6 +192,11 @@ class SettingsRepository(private val context: Context) {
                 autoRestartOnCrashEnabled = prefs[Keys.AUTO_RESTART_ON_CRASH_ENABLED] ?: AppPreferences().autoRestartOnCrashEnabled,
                 fakeSleepSingleTapWakeEnabled = prefs[Keys.FAKE_SLEEP_SINGLE_TAP_WAKE_ENABLED] ?: AppPreferences().fakeSleepSingleTapWakeEnabled,
                 maskTrackTransitionFlashEnabled = prefs[Keys.MASK_TRACK_TRANSITION_FLASH_ENABLED] ?: AppPreferences().maskTrackTransitionFlashEnabled,
+                gestureControlsEnabled = prefs[Keys.GESTURE_CONTROLS_ENABLED] ?: AppPreferences().gestureControlsEnabled,
+                gestureHapticIntensity = prefs[Keys.GESTURE_HAPTIC_INTENSITY] ?: AppPreferences().gestureHapticIntensity,
+                gestureTransitionShowConsoleEnabled = prefs[Keys.GESTURE_TRANSITION_SHOW_CONSOLE_ENABLED] ?: AppPreferences().gestureTransitionShowConsoleEnabled,
+                gestureTransitionRoundedCoverEnabled = prefs[Keys.GESTURE_TRANSITION_ROUNDED_COVER_ENABLED] ?: AppPreferences().gestureTransitionRoundedCoverEnabled,
+                gestureControlsFullScreenEnabled = prefs[Keys.GESTURE_CONTROLS_FULL_SCREEN_ENABLED] ?: AppPreferences().gestureControlsFullScreenEnabled,
             )
             val updated = transform(existing)
             prefs[Keys.KEEP_SCREEN_ON] = updated.keepScreenOn
@@ -205,6 +220,11 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.AUTO_RESTART_ON_CRASH_ENABLED] = updated.autoRestartOnCrashEnabled
             prefs[Keys.FAKE_SLEEP_SINGLE_TAP_WAKE_ENABLED] = updated.fakeSleepSingleTapWakeEnabled
             prefs[Keys.MASK_TRACK_TRANSITION_FLASH_ENABLED] = updated.maskTrackTransitionFlashEnabled
+            prefs[Keys.GESTURE_CONTROLS_ENABLED] = updated.gestureControlsEnabled
+            prefs[Keys.GESTURE_HAPTIC_INTENSITY] = updated.gestureHapticIntensity
+            prefs[Keys.GESTURE_TRANSITION_SHOW_CONSOLE_ENABLED] = updated.gestureTransitionShowConsoleEnabled
+            prefs[Keys.GESTURE_TRANSITION_ROUNDED_COVER_ENABLED] = updated.gestureTransitionRoundedCoverEnabled
+            prefs[Keys.GESTURE_CONTROLS_FULL_SCREEN_ENABLED] = updated.gestureControlsFullScreenEnabled
         }
     }
 }

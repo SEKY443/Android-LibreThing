@@ -92,8 +92,28 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     val landscapeStretchTransportRowEnabled: StateFlow<Boolean> = settingsRepository.appPreferences
         .map { it.landscapeStretchTransportRowEnabled }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    // Eagerly, not WhileSubscribed: unlike the other settings-derived StateFlows in this
+    // ViewModel, these two are only ever read via .value from fakeSleep() below, never
+    // collected by a composable -- WhileSubscribed would never see an active collector, so
+    // .value would stay stuck at its seed default (see fakeSleep()'s outdated behavior before
+    // this) instead of ever picking up the real DataStore value.
     val fakeSleepSingleTapWakeEnabled: StateFlow<Boolean> = settingsRepository.appPreferences
         .map { it.fakeSleepSingleTapWakeEnabled }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val gestureControlsEnabled: StateFlow<Boolean> = settingsRepository.appPreferences
+        .map { it.gestureControlsEnabled }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val gestureHapticIntensity: StateFlow<Float> = settingsRepository.appPreferences
+        .map { it.gestureHapticIntensity }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 1f)
+    val gestureTransitionShowConsoleEnabled: StateFlow<Boolean> = settingsRepository.appPreferences
+        .map { it.gestureTransitionShowConsoleEnabled }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val gestureTransitionRoundedCoverEnabled: StateFlow<Boolean> = settingsRepository.appPreferences
+        .map { it.gestureTransitionRoundedCoverEnabled }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+    val gestureControlsFullScreenEnabled: StateFlow<Boolean> = settingsRepository.appPreferences
+        .map { it.gestureControlsFullScreenEnabled }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     fun toggleService() {
@@ -120,7 +140,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     fun fakeSleep() {
         val context = getApplication<Application>()
         if (BlackScreenOverlayController.canShow(context)) {
-            BlackScreenOverlayController.show(context, wakeOnSingleTap = fakeSleepSingleTapWakeEnabled.value)
+            BlackScreenOverlayController.show(
+                context,
+                wakeOnSingleTap = fakeSleepSingleTapWakeEnabled.value,
+                gestureControlsEnabled = gestureControlsEnabled.value,
+                gestureHapticIntensity = gestureHapticIntensity.value,
+            )
         } else {
             BlackScreenOverlayController.requestPermission(context)
         }

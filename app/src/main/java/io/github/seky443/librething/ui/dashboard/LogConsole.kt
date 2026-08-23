@@ -187,33 +187,39 @@ internal fun ConsoleLogList(
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        items(logs) { entry ->
-            // Tag then time on their own line, message on the next: a long message no longer
-            // competes with the tag/timestamp prefix for line width, and every tag lines up at
-            // a fixed 4 characters (DEBUG/ERROR truncate, INFO/WARN already fit).
-            Column {
-                Row {
-                    Text(
-                        text = "[${entry.level.name.take(4)}] ",
-                        color = entry.level.color(),
-                        fontFamily = FontFamily.Monospace,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Text(
-                        text = "[${timeFormat.format(Date(entry.timestampMillis))}]",
-                        color = ConsoleTimestampColor,
-                        fontFamily = FontFamily.Monospace,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                Text(
-                    text = entry.message,
-                    color = ConsoleMessageColor,
-                    fontFamily = FontFamily.Monospace,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+        items(logs) { entry -> LogEntryRow(entry) }
+    }
+}
+
+/** One log entry, tag+time on their own line and message on the next -- shared by
+ * [ConsoleLogList]'s full scrolling view and [io.github.seky443.librething.ui.dashboard.TransitionConsolePeek]'s
+ * lightweight static peek behind the cover-skip transition, so the two render identically
+ * instead of drifting apart. A long message no longer competes with the tag/timestamp prefix
+ * for line width, and every tag lines up at a fixed 4 characters (DEBUG/ERROR truncate,
+ * INFO/WARN already fit). */
+@Composable
+internal fun LogEntryRow(entry: LogEntry, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Row {
+            Text(
+                text = "[${entry.level.name.take(4)}] ",
+                color = entry.level.color(),
+                fontFamily = FontFamily.Monospace,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                text = "[${timeFormat.format(Date(entry.timestampMillis))}]",
+                color = ConsoleTimestampColor,
+                fontFamily = FontFamily.Monospace,
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
+        Text(
+            text = entry.message,
+            color = ConsoleMessageColor,
+            fontFamily = FontFamily.Monospace,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }

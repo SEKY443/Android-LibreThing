@@ -1,6 +1,7 @@
 package io.github.seky443.librething.ui.settings
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -112,6 +114,52 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                 checked = appPrefs.volumeSliderEnabled,
                 onCheckedChange = { viewModel.updateAppPreferences { p -> p.copy(volumeSliderEnabled = it) } },
             )
+        }
+
+        // Its own section, not folded into Dashboard above -- the driving-safety warning below
+        // needs to read as a standalone notice about this one feature, not a footnote buried
+        // partway through an unrelated card.
+        SettingsSection(title = stringResource(R.string.settings_section_gestures)) {
+            SwitchRow(
+                title = stringResource(R.string.settings_gesture_controls_title),
+                subtitle = stringResource(R.string.settings_gesture_controls_subtitle),
+                checked = appPrefs.gestureControlsEnabled,
+                onCheckedChange = { viewModel.updateAppPreferences { p -> p.copy(gestureControlsEnabled = it) } },
+            )
+            AnimatedVisibility(visible = appPrefs.gestureControlsEnabled) {
+                Column(modifier = Modifier.padding(bottom = SettingsRowPadding)) {
+                    GestureDrivingWarning()
+                    Column(modifier = Modifier.padding(start = 16.dp)) {
+                        LabeledSlider(
+                            label = stringResource(R.string.settings_gesture_haptic_intensity_label),
+                            valueText = stringResource(R.string.settings_gesture_haptic_intensity_value_format, appPrefs.gestureHapticIntensity * 100f),
+                            value = appPrefs.gestureHapticIntensity,
+                            onValueChange = { viewModel.updateAppPreferences { p -> p.copy(gestureHapticIntensity = it) } },
+                            valueRange = 0f..4f,
+                            rangeStartText = stringResource(R.string.settings_gesture_haptic_intensity_range_min),
+                            rangeEndText = stringResource(R.string.settings_gesture_haptic_intensity_range_max),
+                        )
+                        SwitchRow(
+                            title = stringResource(R.string.settings_gesture_transition_show_console_title),
+                            subtitle = stringResource(R.string.settings_gesture_transition_show_console_subtitle),
+                            checked = appPrefs.gestureTransitionShowConsoleEnabled,
+                            onCheckedChange = { viewModel.updateAppPreferences { p -> p.copy(gestureTransitionShowConsoleEnabled = it) } },
+                        )
+                        SwitchRow(
+                            title = stringResource(R.string.settings_gesture_transition_rounded_cover_title),
+                            subtitle = stringResource(R.string.settings_gesture_transition_rounded_cover_subtitle),
+                            checked = appPrefs.gestureTransitionRoundedCoverEnabled,
+                            onCheckedChange = { viewModel.updateAppPreferences { p -> p.copy(gestureTransitionRoundedCoverEnabled = it) } },
+                        )
+                        SwitchRow(
+                            title = stringResource(R.string.settings_gesture_controls_full_screen_title),
+                            subtitle = stringResource(R.string.settings_gesture_controls_full_screen_subtitle),
+                            checked = appPrefs.gestureControlsFullScreenEnabled,
+                            onCheckedChange = { viewModel.updateAppPreferences { p -> p.copy(gestureControlsFullScreenEnabled = it) } },
+                        )
+                    }
+                }
+            }
         }
 
         // Everything that only changes anything while the simplified dashboard is actually in
@@ -419,6 +467,32 @@ private fun SettingsSection(title: String, content: @Composable ColumnScope.() -
         ) {
             Column(modifier = Modifier.padding(horizontal = 16.dp), content = content)
         }
+    }
+}
+
+/** Safety notice shown right under the gesture-controls toggle whenever it's on -- deliberately
+ * styled in the theme's error colors instead of matching the rest of the section, so it reads as
+ * a warning at a glance rather than blending in with an ordinary setting's subtitle. */
+@Composable
+private fun GestureDrivingWarning() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = SettingsRowPadding)
+            .background(MaterialTheme.colorScheme.errorContainer, RoundedCornerShape(16.dp))
+            .padding(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(
+            Icons.Filled.Warning,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onErrorContainer,
+        )
+        Text(
+            stringResource(R.string.settings_gesture_driving_warning),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onErrorContainer,
+        )
     }
 }
 

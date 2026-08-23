@@ -51,16 +51,32 @@
     <!-- SettingsScreen.kt: Dashboard section -->
     <string name="settings_section_dashboard">Dashboard</string>
     <string name="settings_nerd_mode_title">Nerd mode</string>
-    <string name="settings_nerd_mode_subtitle">Revert to the initial UI of this project. It looks basic but is convenient for debugging.</string>
+    <string name="settings_nerd_mode_subtitle">This project\'s original UI — looks basic, but handy for debugging</string>
     <string name="settings_fullscreen_mode_title">Fullscreen mode</string>
-    <string name="settings_fullscreen_mode_subtitle">Hides the status and navigation bars; swipe from an edge to reveal them temporarily.</string>
+    <string name="settings_fullscreen_mode_subtitle">Hides the status and navigation bars; swipe from an edge to reveal them</string>
     <string name="settings_icon_row_label">Icon row</string>
     <string name="settings_hide_console_button_title">Hide console button</string>
     <string name="settings_hide_fake_sleep_button_title">Hide fake sleep button</string>
     <string name="settings_volume_slider_label">Volume slider</string>
     <string name="settings_show_volume_slider_title">Show volume slider</string>
     <string name="settings_mask_track_transition_flash_title">Hide flash between tracks</string>
-    <string name="settings_mask_track_transition_flash_subtitle">Technically a glitch: go-librespot briefly reports idle between an auto-advanced track and the next one. The flash looks kind of cool, so instead of just fixing it, turn this off to see it</string>
+    <string name="settings_mask_track_transition_flash_subtitle">Technically a glitch, but it looks kind of cool — turn this off to see it</string>
+
+    <!-- SettingsScreen.kt: Gestures section -->
+    <string name="settings_section_gestures">Gestures</string>
+    <string name="settings_gesture_controls_title">Gesture controls</string>
+    <string name="settings_gesture_controls_subtitle">Double-tap to play/pause, swipe left/right to skip, swipe up/down for volume. Also works while fake-sleeping (wake always uses a single tap)</string>
+    <string name="settings_gesture_driving_warning">Even though this app was inspired by the Car Thing, I still strongly recommend against using it in a car. If you\'re turning this on to make it easier to control while driving, please don\'t touch it while you\'re actually driving — a device like this has no business being in a car. It\'s too dangerous.</string>
+    <string name="settings_gesture_haptic_intensity_label">Haptic strength</string>
+    <string name="settings_gesture_haptic_intensity_value_format">%1$.0f%%</string>
+    <string name="settings_gesture_haptic_intensity_range_min">Off</string>
+    <string name="settings_gesture_haptic_intensity_range_max">400%</string>
+    <string name="settings_gesture_transition_show_console_title">Show console during transition</string>
+    <string name="settings_gesture_transition_show_console_subtitle">Peeks recent log lines behind the cover as it shrinks, instead of plain black</string>
+    <string name="settings_gesture_transition_rounded_cover_title">Round the cover while it shrinks</string>
+    <string name="settings_gesture_transition_rounded_cover_subtitle">Rounds the corners as the cover shrinks and slides, instead of staying square</string>
+    <string name="settings_gesture_controls_full_screen_title">Gesture area covers the whole screen</string>
+    <string name="settings_gesture_controls_full_screen_subtitle">Gestures work anywhere on the dashboard, not just the cover art — buttons and sliders still work normally</string>
 
     <!-- SettingsScreen.kt: Landscape section -->
     <string name="settings_section_landscape">Landscape</string>

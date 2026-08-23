@@ -24,8 +24,13 @@ data class AppPreferences(
     val hideLastSessionLabelInLandscapeEnabled: Boolean = true,
     val landscapeStretchTransportRowEnabled: Boolean = true,
     val autoRestartOnCrashEnabled: Boolean = true,
-    val fakeSleepSingleTapWakeEnabled: Boolean = false,
+    val fakeSleepSingleTapWakeEnabled: Boolean = true,
     val maskTrackTransitionFlashEnabled: Boolean = true,
+    val gestureControlsEnabled: Boolean = false,
+    val gestureHapticIntensity: Float = 1f,
+    val gestureTransitionShowConsoleEnabled: Boolean = false,
+    val gestureTransitionRoundedCoverEnabled: Boolean = true,
+    val gestureControlsFullScreenEnabled: Boolean = false,
 )
 
 enum class ThemeMode(val wireValue: String, @param:StringRes val labelRes: Int) {

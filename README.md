@@ -15,6 +15,9 @@ Spotify on your other device. It keeps running in the background like a dedicate
 - **Runs in the background**, even with the screen off, so the device can sit in a corner like an
   actual speaker. (which is exactly how I use my own setup)
 - **Material Express style player** - transfer your phone into a Car thing like device.
+- **Gesture controls** (optional) — double-tap the cover art to play/pause, swipe to skip tracks
+  or adjust volume, with adjustable haptic feedback. Can be scoped to just the cover art or
+  expanded to the whole screen, and works the same way while fake-sleeping.
 - **Fake sleep** — dims the screen to pure black while still playing, to protect OLED screens
   from burn-in and stop the display from being a distraction. Fades to black automatically after
   a period of inactivity, or trigger it yourself with one tap.
@@ -107,6 +110,9 @@ That's it — pick a song and it'll start playing through your device's speaker.
 
 - **Play / pause / skip** — same controls you'd expect, right on the main screen.
 - **Volume** — drag the volume slider, or use your device's physical volume buttons.
+- **Gestures** (if turned on in Settings) — double-tap to play/pause, swipe left/right to skip,
+  swipe up/down for volume; works on the cover art, or anywhere on screen if the full-screen
+  option is on.
 - **Fake sleep** — tap the moon icon (or it happens automatically) to blank the screen while
   keeping the music going; tap the screen again to wake it back up.
 - **Settings** are grouped by what they affect — Dashboard look, screen behavior in landscape,
