@@ -155,7 +155,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         // Comfortably longer than a prefetched track swap typically takes, so the mask reliably
         // absorbs the auto-advance gap without regularly timing out and showing Discoverable
         // anyway; long enough on a real stop that it's a deliberate tradeoff, not a bug -- see
-        // maskedConnectionAndTrack.
-        const val TRACK_TRANSITION_MASK_WINDOW_MS = 1500L
+        // maskedConnectionAndTrack. 1500ms used to be enough, but testing auto-advance by
+        // seeking right up to a track's end (rather than waiting through it normally) showed the
+        // gap occasionally running past that -- bumped up for more headroom.
+        const val TRACK_TRANSITION_MASK_WINDOW_MS = 3000L
     }
 }
