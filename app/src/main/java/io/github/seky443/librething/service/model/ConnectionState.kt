@@ -38,3 +38,13 @@ data class PlayerStatus(
     val volumeSteps: Int,
     val track: TrackInfo?,
 )
+
+/** OAuth 2.0 device authorization flow ("device_auth" credentials): the daemon logs this once
+ * per login attempt, then blocks waiting for the user to approve on any device using
+ * [verificationUri] and [userCode] -- unlike interactive login's browser-OAuth callback, that
+ * approval doesn't have to happen on this device, so the code has to stay visible/copyable in
+ * the app itself rather than just auto-launching a browser. */
+data class DeviceAuthPrompt(
+    val verificationUri: String,
+    val userCode: String,
+)

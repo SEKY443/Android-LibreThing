@@ -46,7 +46,16 @@
     <!-- CredentialsType (GoLibrespotConfig.kt) -->
     <string name="credentials_type_zeroconf">Zeroconf (discover from Spotify app)</string>
     <string name="credentials_type_interactive">Interactive login (browser OAuth)</string>
+    <string name="credentials_type_device_auth">Device login (code on another device)</string>
     <string name="credentials_type_spotify_token">Cached Spotify access token</string>
+    <string name="settings_device_auth_hint">After starting, a sign-in code and link will pop up here in the app — no need to be on the same Wi-Fi</string>
+
+    <!-- DeviceAuthDialog (AppNavHost.kt) -->
+    <string name="device_auth_dialog_title">Sign in to Spotify</string>
+    <string name="device_auth_dialog_body">Visit the link below and, if prompted, enter this code:</string>
+    <string name="device_auth_dialog_open_link">Open link</string>
+    <string name="device_auth_dialog_copy_code">Copy code</string>
+    <string name="device_auth_dialog_dismiss">Hide</string>
 
     <!-- SettingsScreen.kt: Dashboard section -->
     <string name="settings_section_dashboard">Dashboard</string>

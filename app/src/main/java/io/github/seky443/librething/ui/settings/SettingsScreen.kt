@@ -322,6 +322,14 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                     )
                 }
             }
+            AnimatedVisibility(visible = config.credentialsType == CredentialsType.DEVICE_AUTH) {
+                Text(
+                    stringResource(R.string.settings_device_auth_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = SettingsRowPadding),
+                )
+            }
             SwitchRow(
                 title = stringResource(R.string.settings_optimistic_replies_title),
                 subtitle = stringResource(R.string.settings_optimistic_replies_subtitle),

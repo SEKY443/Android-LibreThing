@@ -1,6 +1,7 @@
 package io.github.seky443.librething.service
 
 import io.github.seky443.librething.service.model.ConnectionState
+import io.github.seky443.librething.service.model.DeviceAuthPrompt
 import io.github.seky443.librething.service.model.LogEntry
 import io.github.seky443.librething.service.model.TrackInfo
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,6 +46,16 @@ object SpotifyConnectServiceState {
     private val _logs = MutableStateFlow<List<LogEntry>>(emptyList())
     val logs: StateFlow<List<LogEntry>> = _logs.asStateFlow()
 
+    /** Non-null while a "device_auth" login is waiting on the user to approve elsewhere -- see
+     * [DeviceAuthPrompt]. Cleared once the daemon reports real status (login succeeded), on a
+     * daemon exit/restart (a fresh attempt gets a fresh code), and when the service stops. */
+    private val _deviceAuthPrompt = MutableStateFlow<DeviceAuthPrompt?>(null)
+    val deviceAuthPrompt: StateFlow<DeviceAuthPrompt?> = _deviceAuthPrompt.asStateFlow()
+
+    internal fun setDeviceAuthPrompt(prompt: DeviceAuthPrompt?) {
+        _deviceAuthPrompt.value = prompt
+    }
+
     private val _isServiceRunning = MutableStateFlow(false)
     val isServiceRunning: StateFlow<Boolean> = _isServiceRunning.asStateFlow()
 
@@ -56,6 +67,7 @@ object SpotifyConnectServiceState {
         if (client == null) {
             _connectionState.value = ConnectionState.Idle
             _nowPlaying.value = null
+            _deviceAuthPrompt.value = null
         }
     }
 

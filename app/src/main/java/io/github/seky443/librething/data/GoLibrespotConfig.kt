@@ -34,6 +34,7 @@ enum class DeviceType(val wireValue: String, @param:StringRes val labelRes: Int)
 enum class CredentialsType(val wireValue: String, @param:StringRes val labelRes: Int) {
     ZEROCONF("zeroconf", R.string.credentials_type_zeroconf),
     INTERACTIVE("interactive", R.string.credentials_type_interactive),
+    DEVICE_AUTH("device_auth", R.string.credentials_type_device_auth),
     SPOTIFY_TOKEN("spotify_token", R.string.credentials_type_spotify_token);
 
     companion object {

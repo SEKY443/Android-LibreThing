@@ -8,6 +8,7 @@ import io.github.seky443.librething.data.DashboardBackgroundStyle
 import io.github.seky443.librething.service.SpotifyConnectService
 import io.github.seky443.librething.service.SpotifyConnectServiceState
 import io.github.seky443.librething.service.model.ConnectionState
+import io.github.seky443.librething.service.model.DeviceAuthPrompt
 import io.github.seky443.librething.service.model.LogEntry
 import io.github.seky443.librething.service.model.TrackInfo
 import kotlinx.coroutines.Dispatchers
@@ -47,6 +48,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ConnectionState.Idle to null)
 
+    val deviceAuthPrompt: StateFlow<DeviceAuthPrompt?> = SpotifyConnectServiceState.deviceAuthPrompt
     val connectionState: StateFlow<ConnectionState> = maskedConnectionAndTrack
         .map { it.first }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ConnectionState.Idle)

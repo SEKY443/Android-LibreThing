@@ -21,6 +21,7 @@ import io.github.seky443.librething.MainActivity
 import io.github.seky443.librething.R
 import io.github.seky443.librething.data.SettingsRepository
 import io.github.seky443.librething.service.model.ConnectionState
+import io.github.seky443.librething.service.model.DeviceAuthPrompt
 import io.github.seky443.librething.service.model.LogEntry
 import io.github.seky443.librething.service.model.LogLevel
 import io.github.seky443.librething.service.model.TrackInfo
@@ -50,6 +51,15 @@ class SpotifyConnectService : LifecycleService() {
         const val ACTION_NEXT = "io.github.seky443.librething.action.NEXT"
         const val ACTION_PREVIOUS = "io.github.seky443.librething.action.PREVIOUS"
         private val AUTH_URL_REGEX = Regex("""https://accounts\.spotify\.com/authorize\S*""")
+
+        // Matches session.go's DeviceAuthCredentials log line exactly (see
+        // native/go-librespot-src/session/session.go): "to complete authentication visit
+        // <url> and, if prompted, enter code <code>". Two capture groups, unlike the
+        // interactive flow's single-URL AUTH_URL_REGEX, since the code has to be shown
+        // separately -- it isn't embedded in the URL when Spotify doesn't return a
+        // "complete" verification link.
+        private val DEVICE_AUTH_REGEX =
+            Regex("""to complete authentication visit (\S+) and, if prompted, enter code (\S+)""")
 
         // Caps a crash loop (e.g. a config that makes the daemon fail immediately every time)
         // from restarting forever; the counter resets once a launch actually reaches a ready
@@ -161,6 +171,7 @@ class SpotifyConnectService : LifecycleService() {
             val status = client.getStatus()
             if (status != null) {
                 restartAttempts = 0
+                SpotifyConnectServiceState.setDeviceAuthPrompt(null)
                 SpotifyConnectServiceState.setConnectionState(
                     when {
                         status.stopped -> ConnectionState.Discoverable
@@ -185,6 +196,12 @@ class SpotifyConnectService : LifecycleService() {
      */
     private fun handleDaemonLog(entry: LogEntry) {
         SpotifyConnectServiceState.appendLog(entry)
+
+        DEVICE_AUTH_REGEX.find(entry.message)?.let { match ->
+            val (verificationUri, userCode) = match.destructured
+            SpotifyConnectServiceState.setDeviceAuthPrompt(DeviceAuthPrompt(verificationUri, userCode))
+            return
+        }
 
         val url = AUTH_URL_REGEX.find(entry.message)?.value ?: return
         if (!authUrlOpened.compareAndSet(false, true)) return
@@ -215,6 +232,7 @@ class SpotifyConnectService : LifecycleService() {
         // Always log this, including a clean exit (0): the daemon exiting at all while the
         // service is still meant to be running is unexpected and otherwise silent.
         SpotifyConnectServiceState.appendLog(LogEntry(LogLevel.INFO, "go-librespot process exited (code $exitCode)"))
+        SpotifyConnectServiceState.setDeviceAuthPrompt(null)
         if (exitCode == 0) {
             stopSelf()
             return

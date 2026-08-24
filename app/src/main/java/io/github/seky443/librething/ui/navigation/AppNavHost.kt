@@ -1,18 +1,26 @@
 package io.github.seky443.librething.ui.navigation
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.BackEventCompat
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.Icon
@@ -22,6 +30,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -35,8 +44,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -44,6 +57,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.seky443.librething.R
 import io.github.seky443.librething.data.DashboardBackgroundStyle
+import io.github.seky443.librething.service.model.DeviceAuthPrompt
 import io.github.seky443.librething.ui.dashboard.DashboardScreen
 import io.github.seky443.librething.ui.dashboard.DashboardViewModel
 import io.github.seky443.librething.ui.dashboard.SimpleDashboardScreen
@@ -71,6 +85,73 @@ fun AppNavHost(onSuppressSystemVolumePanelChange: (Boolean) -> Unit) {
     } else {
         SimpleModeNavHost(dashboardViewModel, onSuppressSystemVolumePanelChange)
     }
+
+    // Hosted at this top level (not inside either branch) so a device_auth login prompt shows
+    // over whichever screen is up -- Dashboard or Settings, nerd mode or not -- rather than
+    // only while one specific screen happens to be on screen.
+    val deviceAuthPrompt by dashboardViewModel.deviceAuthPrompt.collectAsState()
+    var dismissedPrompt by remember { mutableStateOf<DeviceAuthPrompt?>(null) }
+    deviceAuthPrompt?.takeIf { it != dismissedPrompt }?.let { prompt ->
+        DeviceAuthDialog(prompt, onDismiss = { dismissedPrompt = prompt })
+    }
+}
+
+/**
+ * Shown while a "device_auth" login (session.go's DeviceAuthCredentials) is waiting on the
+ * user to approve elsewhere -- see [DeviceAuthPrompt]'s kdoc for why that has to stay visible
+ * here rather than just auto-launching a browser like the interactive flow does. "Open link"
+ * is still offered since the flow works fine on this same device too, just not exclusively.
+ */
+@Composable
+private fun DeviceAuthDialog(prompt: DeviceAuthPrompt, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.device_auth_dialog_title)) },
+        text = {
+            Column {
+                Text(stringResource(R.string.device_auth_dialog_body))
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    prompt.userCode,
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontFamily = FontFamily.Monospace,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    prompt.verificationUri,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(prompt.verificationUri))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(intent)
+                } catch (e: ActivityNotFoundException) {
+                    // No browser to hand off to -- the code and link stay visible in the dialog
+                    // either way, so there's nothing more to do here than leave it as is.
+                }
+            }) {
+                Text(stringResource(R.string.device_auth_dialog_open_link))
+            }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { clipboard.setText(AnnotatedString(prompt.userCode)) }) {
+                    Text(stringResource(R.string.device_auth_dialog_copy_code))
+                }
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.device_auth_dialog_dismiss))
+                }
+            }
+        },
+    )
 }
 
 /**
