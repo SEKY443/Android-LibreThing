@@ -1,6 +1,8 @@
 package io.github.seky443.librething.ui.dashboard
 
 import android.app.Application
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.seky443.librething.GoLibrespotApplication
@@ -11,11 +13,16 @@ import io.github.seky443.librething.service.model.ConnectionState
 import io.github.seky443.librething.service.model.DeviceAuthPrompt
 import io.github.seky443.librething.service.model.LogEntry
 import io.github.seky443.librething.service.model.TrackInfo
+import io.github.seky443.librething.util.UpdateChecker
+import io.github.seky443.librething.util.UpdateInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.transformLatest
@@ -117,6 +124,73 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     val gestureControlsFullScreenEnabled: StateFlow<Boolean> = settingsRepository.appPreferences
         .map { it.gestureControlsFullScreenEnabled }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val oledPixelShiftEnabled: StateFlow<Boolean> = settingsRepository.appPreferences
+        .map { it.oledPixelShiftEnabled }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val oledCheckerboardDimEnabled: StateFlow<Boolean> = settingsRepository.appPreferences
+        .map { it.oledCheckerboardDimEnabled }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val grayscaleFilterEnabled: StateFlow<Boolean> = settingsRepository.appPreferences
+        .map { it.grayscaleFilterEnabled }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val grayscaleFilterStartMinutes: StateFlow<Int> = settingsRepository.appPreferences
+        .map { it.grayscaleFilterStartMinutes }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 22 * 60)
+    val grayscaleFilterEndMinutes: StateFlow<Int> = settingsRepository.appPreferences
+        .map { it.grayscaleFilterEndMinutes }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 6 * 60)
+    val redLightFilterEnabled: StateFlow<Boolean> = settingsRepository.appPreferences
+        .map { it.redLightFilterEnabled }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val redLightFilterStartMinutes: StateFlow<Int> = settingsRepository.appPreferences
+        .map { it.redLightFilterStartMinutes }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 22 * 60)
+    val redLightFilterEndMinutes: StateFlow<Int> = settingsRepository.appPreferences
+        .map { it.redLightFilterEndMinutes }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 6 * 60)
+
+    private val _updateAvailable = MutableStateFlow<UpdateInfo?>(null)
+    val updateAvailable: StateFlow<UpdateInfo?> = _updateAvailable.asStateFlow()
+
+    init {
+        viewModelScope.launch { checkForUpdateIfDue() }
+    }
+
+    /** One-shot on every fresh process (this ViewModel doesn't survive process death, so there's
+     * no separate "already checked this session" flag needed beyond the throttle below) -- see
+     * [UpdateChecker]. Silently does nothing if the toggle is off, the last check was too
+     * recent, the network call fails, or the latest release is one the user already dismissed. */
+    private suspend fun checkForUpdateIfDue() {
+        if (!settingsRepository.appPreferences.first().autoCheckForUpdatesEnabled) return
+
+        val lastCheckAtMillis = settingsRepository.lastUpdateCheckAtMillis.first()
+        val now = System.currentTimeMillis()
+        if (lastCheckAtMillis != null && now - lastCheckAtMillis < UPDATE_CHECK_THROTTLE_MILLIS) return
+        settingsRepository.setLastUpdateCheckAtMillis(now)
+
+        val currentVersionName = currentVersionName() ?: return
+        val info = UpdateChecker.checkForNewerRelease(currentVersionName) ?: return
+        if (info.version == settingsRepository.lastDismissedUpdateVersion.first()) return
+        _updateAvailable.value = info
+    }
+
+    private fun currentVersionName(): String? {
+        val context = getApplication<Application>()
+        val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.packageManager.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0))
+        } else {
+            @Suppress("DEPRECATION")
+            context.packageManager.getPackageInfo(context.packageName, 0)
+        }
+        return packageInfo.versionName
+    }
+
+    /** Persists [info] as dismissed so [checkForUpdateIfDue] won't re-prompt for this same
+     * release again, even on a later launch -- a genuinely newer release still will. */
+    fun dismissUpdate(info: UpdateInfo) {
+        _updateAvailable.value = null
+        viewModelScope.launch { settingsRepository.setLastDismissedUpdateVersion(info.version) }
+    }
 
     fun toggleService() {
         val context = getApplication<Application>()
@@ -161,5 +235,11 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         // seeking right up to a track's end (rather than waiting through it normally) showed the
         // gap occasionally running past that -- bumped up for more headroom.
         const val TRACK_TRANSITION_MASK_WINDOW_MS = 3000L
+
+        // Twice-daily at most, regardless of how often the app is launched -- comfortably
+        // inside GitHub's unauthenticated rate limit (60/hour per IP) with room to spare, since
+        // this is a background nicety, not something that needs to catch a new release the
+        // moment it goes out.
+        const val UPDATE_CHECK_THROTTLE_MILLIS = 12 * 60 * 60 * 1000L
     }
 }

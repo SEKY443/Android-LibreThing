@@ -3,17 +3,23 @@ package io.github.seky443.librething.ui.navigation
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapShader
+import android.graphics.Color as AndroidColor
+import android.graphics.Shader
 import android.net.Uri
 import androidx.activity.BackEventCompat
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -34,6 +40,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -42,6 +49,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -50,12 +66,14 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.seky443.librething.R
+import io.github.seky443.librething.data.AppPreferences
 import io.github.seky443.librething.data.DashboardBackgroundStyle
 import io.github.seky443.librething.service.model.DeviceAuthPrompt
 import io.github.seky443.librething.ui.dashboard.DashboardScreen
@@ -64,7 +82,9 @@ import io.github.seky443.librething.ui.dashboard.SimpleDashboardScreen
 import io.github.seky443.librething.ui.dashboard.StartStopFab
 import io.github.seky443.librething.ui.settings.SettingsScreen
 import io.github.seky443.librething.ui.settings.SettingsViewModel
+import io.github.seky443.librething.util.UpdateInfo
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -80,10 +100,46 @@ fun AppNavHost(onSuppressSystemVolumePanelChange: (Boolean) -> Unit) {
     val dashboardViewModel = viewModel<DashboardViewModel>()
     val nerdModeEnabled by dashboardViewModel.nerdModeEnabled.collectAsState()
 
-    if (nerdModeEnabled) {
-        NerdModeNavHost(dashboardViewModel)
-    } else {
-        SimpleModeNavHost(dashboardViewModel, onSuppressSystemVolumePanelChange)
+    // Both OLED-protection effects apply at this outermost level (not inside either branch)
+    // so they cover Settings as well as the Dashboard, nerd mode or not -- rather than needing
+    // to be threaded into each screen individually.
+    val oledPixelShiftEnabled by dashboardViewModel.oledPixelShiftEnabled.collectAsState()
+    val oledCheckerboardDimEnabled by dashboardViewModel.oledCheckerboardDimEnabled.collectAsState()
+    val pixelShiftOffset = rememberOledPixelShiftOffset(oledPixelShiftEnabled)
+
+    // Scheduled display filters -- same outermost-level placement as the OLED effects above,
+    // for the same reason (covers Settings too, not just the Dashboard).
+    val grayscaleFilterEnabled by dashboardViewModel.grayscaleFilterEnabled.collectAsState()
+    val grayscaleFilterStartMinutes by dashboardViewModel.grayscaleFilterStartMinutes.collectAsState()
+    val grayscaleFilterEndMinutes by dashboardViewModel.grayscaleFilterEndMinutes.collectAsState()
+    val redLightFilterEnabled by dashboardViewModel.redLightFilterEnabled.collectAsState()
+    val redLightFilterStartMinutes by dashboardViewModel.redLightFilterStartMinutes.collectAsState()
+    val redLightFilterEndMinutes by dashboardViewModel.redLightFilterEndMinutes.collectAsState()
+    val grayscaleFilterActive = rememberScheduledFilterActive(grayscaleFilterEnabled, grayscaleFilterStartMinutes, grayscaleFilterEndMinutes)
+    val redLightFilterActive = rememberScheduledFilterActive(redLightFilterEnabled, redLightFilterStartMinutes, redLightFilterEndMinutes)
+    // Red light wins if both schedules somehow overlap -- it's already a stronger transform
+    // (luminance-only, mapped to the red channel) than plain grayscale, not a separate effect
+    // to stack on top of it.
+    val displayFilterMatrix = when {
+        redLightFilterActive -> RedLightColorMatrix
+        grayscaleFilterActive -> GrayscaleColorMatrix
+        else -> null
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .offset(x = pixelShiftOffset.x, y = pixelShiftOffset.y)
+            .displayColorFilter(displayFilterMatrix),
+    ) {
+        if (nerdModeEnabled) {
+            NerdModeNavHost(dashboardViewModel)
+        } else {
+            SimpleModeNavHost(dashboardViewModel, onSuppressSystemVolumePanelChange)
+        }
+        if (oledCheckerboardDimEnabled) {
+            OledCheckerboardOverlay(Modifier.fillMaxSize())
+        }
     }
 
     // Hosted at this top level (not inside either branch) so a device_auth login prompt shows
@@ -93,6 +149,14 @@ fun AppNavHost(onSuppressSystemVolumePanelChange: (Boolean) -> Unit) {
     var dismissedPrompt by remember { mutableStateOf<DeviceAuthPrompt?>(null) }
     deviceAuthPrompt?.takeIf { it != dismissedPrompt }?.let { prompt ->
         DeviceAuthDialog(prompt, onDismiss = { dismissedPrompt = prompt })
+    }
+
+    // Same top-level placement as the device_auth prompt above, for the same reason. Unlike
+    // that one, dismissal here is persisted (see DashboardViewModel.dismissUpdate) rather than
+    // just local remember state, so a dismissed release doesn't come back on the next launch.
+    val updateAvailable by dashboardViewModel.updateAvailable.collectAsState()
+    updateAvailable?.let { info ->
+        UpdateAvailableDialog(info, onDismiss = { dashboardViewModel.dismissUpdate(info) })
     }
 }
 
@@ -152,6 +216,166 @@ private fun DeviceAuthDialog(prompt: DeviceAuthPrompt, onDismiss: () -> Unit) {
             }
         },
     )
+}
+
+/** Shown once per newly-seen GitHub release -- see [DashboardViewModel.checkForUpdateIfDue] and
+ * [UpdateChecker]. "View release" opens [UpdateInfo.releaseUrl] rather than requiring an
+ * in-app changelog; "Later" persists the dismissal (via [DashboardViewModel.dismissUpdate]) so
+ * this same release doesn't prompt again on a future launch. */
+@Composable
+private fun UpdateAvailableDialog(info: UpdateInfo, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.update_available_dialog_title)) },
+        text = { Text(stringResource(R.string.update_available_dialog_body, info.version)) },
+        confirmButton = {
+            TextButton(onClick = {
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(info.releaseUrl))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(intent)
+                } catch (e: ActivityNotFoundException) {
+                    // No browser to hand off to -- nothing more useful to do here than leave the
+                    // dialog up so the user can at least see the version number.
+                }
+                onDismiss()
+            }) {
+                Text(stringResource(R.string.update_available_dialog_view_release))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.update_available_dialog_dismiss))
+            }
+        },
+    )
+}
+
+/** Small ring of tiny offsets a burn-in-prone static layout cycles through, one step a minute,
+ * so no single pixel sits under the same bright edge/icon for hours on end -- classic OLED
+ * "pixel shifting". A plain jump rather than an animated slide: at 3dp it's not meant to be
+ * seen happening, just to have happened. Returns a fixed (0dp, 0dp) while disabled, so the
+ * caller can apply it unconditionally without an extra branch. */
+@Composable
+private fun rememberOledPixelShiftOffset(enabled: Boolean): DpOffset {
+    if (!enabled) return DpOffset.Zero
+    val offsets = remember {
+        listOf(
+            DpOffset(0.dp, 0.dp), DpOffset(3.dp, 0.dp), DpOffset(0.dp, 3.dp), DpOffset((-3).dp, 0.dp), DpOffset(0.dp, (-3).dp),
+            DpOffset(3.dp, 3.dp), DpOffset((-3).dp, (-3).dp), DpOffset(3.dp, (-3).dp), DpOffset((-3).dp, 3.dp),
+        )
+    }
+    var index by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(OLED_PROTECTION_STEP_MS)
+            index = (index + 1) % offsets.size
+        }
+    }
+    return offsets[index]
+}
+
+/**
+ * Blacks out alternating screen pixels in a true checkerboard, flipping which half is lit once
+ * a minute -- unlike [oledPixelShift] (which relocates content so no one pixel stays lit), this
+ * instead halves how long any given pixel spends lit at all, at the cost of visibly dimming/
+ * dithering the whole screen while it's on. Drawn as a 2x2 repeating tile via [BitmapShader]
+ * (opaque black / fully transparent, REPEAT-tiled) rather than one draw call per physical pixel,
+ * which a screen with millions of pixels can't afford -- the GPU tiles a shader for free.
+ */
+@Composable
+private fun OledCheckerboardOverlay(modifier: Modifier = Modifier) {
+    var phase by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(OLED_PROTECTION_STEP_MS)
+            phase = 1 - phase
+        }
+    }
+    val brush = remember(phase) { checkerboardBrush(phase) }
+    Canvas(modifier = modifier) { drawRect(brush = brush) }
+}
+
+private fun checkerboardBrush(phase: Int): Brush {
+    val tile = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+    val black = AndroidColor.BLACK
+    val clear = AndroidColor.TRANSPARENT
+    if (phase == 0) {
+        tile.setPixel(0, 0, black); tile.setPixel(1, 0, clear)
+        tile.setPixel(0, 1, clear); tile.setPixel(1, 1, black)
+    } else {
+        tile.setPixel(0, 0, clear); tile.setPixel(1, 0, black)
+        tile.setPixel(0, 1, black); tile.setPixel(1, 1, clear)
+    }
+    return ShaderBrush(BitmapShader(tile, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT))
+}
+
+private const val OLED_PROTECTION_STEP_MS = 60_000L
+
+/** True while the current wall-clock time falls within [startMinutes, endMinutes) (both in
+ * minutes since midnight, 0..1439) -- a start after the end is a valid overnight range (e.g.
+ * 22:00-06:00) that wraps past midnight rather than being treated as empty. Re-checked every
+ * [FILTER_SCHEDULE_CHECK_MS] rather than computed once, so a filter already on screen actually
+ * turns off again when its window ends without the user having to background/reopen the app. */
+@Composable
+private fun rememberScheduledFilterActive(enabled: Boolean, startMinutes: Int, endMinutes: Int): Boolean {
+    if (!enabled) return false
+    var active by remember(startMinutes, endMinutes) { mutableStateOf(isWithinSchedule(startMinutes, endMinutes)) }
+    LaunchedEffect(startMinutes, endMinutes) {
+        while (true) {
+            delay(FILTER_SCHEDULE_CHECK_MS)
+            active = isWithinSchedule(startMinutes, endMinutes)
+        }
+    }
+    return active
+}
+
+private fun isWithinSchedule(startMinutes: Int, endMinutes: Int): Boolean {
+    val calendar = java.util.Calendar.getInstance()
+    val nowMinutes = calendar.get(java.util.Calendar.HOUR_OF_DAY) * 60 + calendar.get(java.util.Calendar.MINUTE)
+    return if (startMinutes <= endMinutes) {
+        nowMinutes in startMinutes until endMinutes
+    } else {
+        nowMinutes >= startMinutes || nowMinutes < endMinutes
+    }
+}
+
+private const val FILTER_SCHEDULE_CHECK_MS = 30_000L
+
+/** Full-screen grayscale, luminance-preserving (the standard-weights [ColorMatrix.setToSaturation]
+ * transform), for [AppPreferences.grayscaleFilterEnabled]. */
+private val GrayscaleColorMatrix = ColorMatrix().apply { setToSaturation(0f) }
+
+/** Full-screen "red light mode" for [AppPreferences.redLightFilterEnabled] -- the kind used to
+ * preserve night vision/dark adaptation (astronomy, night driving): luminance is computed and
+ * written to the red channel only, green and blue zeroed, so the whole screen reads as shades of
+ * red instead of just being tinted warm. */
+private val RedLightColorMatrix = ColorMatrix(
+    floatArrayOf(
+        0.2126f, 0.7152f, 0.0722f, 0f, 0f,
+        0f, 0f, 0f, 0f, 0f,
+        0f, 0f, 0f, 0f, 0f,
+        0f, 0f, 0f, 1f, 0f,
+    ),
+)
+
+/** Applies [matrix] to everything drawn underneath via an offscreen [Canvas.saveLayer], or does
+ * nothing at all when [matrix] is null -- works on every API level this app supports (unlike
+ * `graphicsLayer(renderEffect = ...)`, which needs API 31+), since it's plain 2D compositing
+ * rather than a hardware render effect. Doesn't reach content in a separate Android window (e.g.
+ * [DeviceAuthDialog]'s own dialog surface) -- Compose has no draw-tree access to those. */
+private fun Modifier.displayColorFilter(matrix: ColorMatrix?): Modifier {
+    if (matrix == null) return this
+    val paint = Paint().apply { colorFilter = ColorFilter.colorMatrix(matrix) }
+    return drawWithContent {
+        drawIntoCanvas { canvas ->
+            canvas.saveLayer(Rect(Offset.Zero, size), paint)
+            drawContent()
+            canvas.restore()
+        }
+    }
 }
 
 /**

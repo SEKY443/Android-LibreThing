@@ -57,6 +57,24 @@
     <string name="device_auth_dialog_copy_code">Copy code</string>
     <string name="device_auth_dialog_dismiss">Hide</string>
 
+    <!-- SettingsScreen.kt: OLED protection section -->
+    <string name="settings_section_oled_protection">OLED protection</string>
+    <string name="settings_oled_pixel_shift_title">Pixel shift</string>
+    <string name="settings_oled_pixel_shift_subtitle">Nudges everything on screen by a few pixels once a minute, so nothing sits in the exact same spot for hours</string>
+    <string name="settings_oled_checkerboard_dim_title">Checkerboard dimming</string>
+    <string name="settings_oled_checkerboard_dim_subtitle">Blacks out alternating pixels in a checkerboard, flipping which half every minute — noticeably dims the screen while on</string>
+
+    <!-- SettingsScreen.kt: Display filters section -->
+    <string name="settings_section_display_filters">Display filters</string>
+    <string name="settings_grayscale_filter_title">Grayscale filter</string>
+    <string name="settings_grayscale_filter_subtitle">Drains all color from the screen during the scheduled hours</string>
+    <string name="settings_red_light_filter_title">Red light filter</string>
+    <string name="settings_red_light_filter_subtitle">Shows everything in red only during the scheduled hours — easier on the eyes and night vision in the dark</string>
+    <string name="settings_filter_schedule_start">Starts</string>
+    <string name="settings_filter_schedule_end">Ends</string>
+    <string name="settings_filter_time_picker_confirm">OK</string>
+    <string name="settings_filter_time_picker_cancel">Cancel</string>
+
     <!-- SettingsScreen.kt: Dashboard section -->
     <string name="settings_section_dashboard">Dashboard</string>
     <string name="settings_nerd_mode_title">Nerd mode</string>
@@ -141,6 +159,14 @@
     <string name="settings_autostart_boot_title">Autostart on boot</string>
     <string name="settings_auto_restart_on_crash_title">Restart automatically on crash</string>
     <string name="settings_auto_restart_on_crash_subtitle">Relaunches go-librespot after a fatal error, up to 5 attempts before giving up</string>
+    <string name="settings_auto_check_for_updates_title">Check for updates automatically</string>
+    <string name="settings_auto_check_for_updates_subtitle">Prompts when a newer version is out on GitHub, at most twice a day</string>
+
+    <!-- UpdateAvailableDialog (AppNavHost.kt) -->
+    <string name="update_available_dialog_title">Update available</string>
+    <string name="update_available_dialog_body">Librething %1$s is out.</string>
+    <string name="update_available_dialog_view_release">View release</string>
+    <string name="update_available_dialog_dismiss">Later</string>
     <string name="settings_battery_optimization_label">Battery optimization</string>
     <string name="settings_battery_exempt_subtitle">Exempt — background playback won\'t be throttled</string>
     <string name="settings_battery_not_exempt_subtitle">Not exempt — Android may kill the service in the background</string>

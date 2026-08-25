@@ -31,6 +31,15 @@ data class AppPreferences(
     val gestureTransitionShowConsoleEnabled: Boolean = false,
     val gestureTransitionRoundedCoverEnabled: Boolean = true,
     val gestureControlsFullScreenEnabled: Boolean = false,
+    val oledPixelShiftEnabled: Boolean = false,
+    val oledCheckerboardDimEnabled: Boolean = false,
+    val grayscaleFilterEnabled: Boolean = false,
+    val grayscaleFilterStartMinutes: Int = 22 * 60,
+    val grayscaleFilterEndMinutes: Int = 6 * 60,
+    val redLightFilterEnabled: Boolean = false,
+    val redLightFilterStartMinutes: Int = 22 * 60,
+    val redLightFilterEndMinutes: Int = 6 * 60,
+    val autoCheckForUpdatesEnabled: Boolean = true,
 )
 
 enum class ThemeMode(val wireValue: String, @param:StringRes val labelRes: Int) {

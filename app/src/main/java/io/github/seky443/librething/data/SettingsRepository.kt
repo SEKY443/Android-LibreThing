@@ -57,8 +57,19 @@ class SettingsRepository(private val context: Context) {
         val GESTURE_TRANSITION_SHOW_CONSOLE_ENABLED = booleanPreferencesKey("gesture_transition_show_console_enabled")
         val GESTURE_TRANSITION_ROUNDED_COVER_ENABLED = booleanPreferencesKey("gesture_transition_rounded_cover_enabled")
         val GESTURE_CONTROLS_FULL_SCREEN_ENABLED = booleanPreferencesKey("gesture_controls_full_screen_enabled")
+        val OLED_PIXEL_SHIFT_ENABLED = booleanPreferencesKey("oled_pixel_shift_enabled")
+        val OLED_CHECKERBOARD_DIM_ENABLED = booleanPreferencesKey("oled_checkerboard_dim_enabled")
+        val GRAYSCALE_FILTER_ENABLED = booleanPreferencesKey("grayscale_filter_enabled")
+        val GRAYSCALE_FILTER_START_MINUTES = intPreferencesKey("grayscale_filter_start_minutes")
+        val GRAYSCALE_FILTER_END_MINUTES = intPreferencesKey("grayscale_filter_end_minutes")
+        val RED_LIGHT_FILTER_ENABLED = booleanPreferencesKey("red_light_filter_enabled")
+        val RED_LIGHT_FILTER_START_MINUTES = intPreferencesKey("red_light_filter_start_minutes")
+        val RED_LIGHT_FILTER_END_MINUTES = intPreferencesKey("red_light_filter_end_minutes")
+        val AUTO_CHECK_FOR_UPDATES_ENABLED = booleanPreferencesKey("auto_check_for_updates_enabled")
         val LAST_VOLUME_FRACTION = floatPreferencesKey("last_volume_fraction")
         val LAST_SESSION_END_AT_MILLIS = longPreferencesKey("last_session_end_at_millis")
+        val LAST_DISMISSED_UPDATE_VERSION = stringPreferencesKey("last_dismissed_update_version")
+        val LAST_UPDATE_CHECK_AT_MILLIS = longPreferencesKey("last_update_check_at_millis")
     }
 
     /** Wall-clock time (epoch millis) the service last stopped, or null if it never has this
@@ -81,6 +92,26 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setLastVolumeFraction(fraction: Float) {
         context.dataStore.edit { prefs -> prefs[Keys.LAST_VOLUME_FRACTION] = fraction.coerceIn(0f, 1f) }
+    }
+
+    /** The release version (e.g. "1.3.0", no leading "v") the user last dismissed an
+     * update-available prompt for, or null if none has ever been dismissed -- see
+     * [io.github.seky443.librething.util.UpdateChecker]. Compared against the latest GitHub
+     * release on each check so a dismissed version doesn't keep re-prompting every launch, while
+     * a genuinely newer release still does. */
+    val lastDismissedUpdateVersion: Flow<String?> = context.dataStore.data.map { prefs -> prefs[Keys.LAST_DISMISSED_UPDATE_VERSION] }
+
+    suspend fun setLastDismissedUpdateVersion(version: String) {
+        context.dataStore.edit { prefs -> prefs[Keys.LAST_DISMISSED_UPDATE_VERSION] = version }
+    }
+
+    /** Wall-clock time (epoch millis) of the last GitHub releases check, or null if one has
+     * never run -- throttles [io.github.seky443.librething.util.UpdateChecker] to roughly twice
+     * a day regardless of how often the app is launched. */
+    val lastUpdateCheckAtMillis: Flow<Long?> = context.dataStore.data.map { prefs -> prefs[Keys.LAST_UPDATE_CHECK_AT_MILLIS] }
+
+    suspend fun setLastUpdateCheckAtMillis(millis: Long) {
+        context.dataStore.edit { prefs -> prefs[Keys.LAST_UPDATE_CHECK_AT_MILLIS] = millis }
     }
 
     val goLibrespotConfig: Flow<GoLibrespotConfig> = context.dataStore.data.map { prefs ->
@@ -131,6 +162,15 @@ class SettingsRepository(private val context: Context) {
             gestureTransitionShowConsoleEnabled = prefs[Keys.GESTURE_TRANSITION_SHOW_CONSOLE_ENABLED] ?: defaults.gestureTransitionShowConsoleEnabled,
             gestureTransitionRoundedCoverEnabled = prefs[Keys.GESTURE_TRANSITION_ROUNDED_COVER_ENABLED] ?: defaults.gestureTransitionRoundedCoverEnabled,
             gestureControlsFullScreenEnabled = prefs[Keys.GESTURE_CONTROLS_FULL_SCREEN_ENABLED] ?: defaults.gestureControlsFullScreenEnabled,
+            oledPixelShiftEnabled = prefs[Keys.OLED_PIXEL_SHIFT_ENABLED] ?: defaults.oledPixelShiftEnabled,
+            oledCheckerboardDimEnabled = prefs[Keys.OLED_CHECKERBOARD_DIM_ENABLED] ?: defaults.oledCheckerboardDimEnabled,
+            grayscaleFilterEnabled = prefs[Keys.GRAYSCALE_FILTER_ENABLED] ?: defaults.grayscaleFilterEnabled,
+            grayscaleFilterStartMinutes = prefs[Keys.GRAYSCALE_FILTER_START_MINUTES] ?: defaults.grayscaleFilterStartMinutes,
+            grayscaleFilterEndMinutes = prefs[Keys.GRAYSCALE_FILTER_END_MINUTES] ?: defaults.grayscaleFilterEndMinutes,
+            redLightFilterEnabled = prefs[Keys.RED_LIGHT_FILTER_ENABLED] ?: defaults.redLightFilterEnabled,
+            redLightFilterStartMinutes = prefs[Keys.RED_LIGHT_FILTER_START_MINUTES] ?: defaults.redLightFilterStartMinutes,
+            redLightFilterEndMinutes = prefs[Keys.RED_LIGHT_FILTER_END_MINUTES] ?: defaults.redLightFilterEndMinutes,
+            autoCheckForUpdatesEnabled = prefs[Keys.AUTO_CHECK_FOR_UPDATES_ENABLED] ?: defaults.autoCheckForUpdatesEnabled,
         )
     }
 
@@ -197,6 +237,15 @@ class SettingsRepository(private val context: Context) {
                 gestureTransitionShowConsoleEnabled = prefs[Keys.GESTURE_TRANSITION_SHOW_CONSOLE_ENABLED] ?: AppPreferences().gestureTransitionShowConsoleEnabled,
                 gestureTransitionRoundedCoverEnabled = prefs[Keys.GESTURE_TRANSITION_ROUNDED_COVER_ENABLED] ?: AppPreferences().gestureTransitionRoundedCoverEnabled,
                 gestureControlsFullScreenEnabled = prefs[Keys.GESTURE_CONTROLS_FULL_SCREEN_ENABLED] ?: AppPreferences().gestureControlsFullScreenEnabled,
+                oledPixelShiftEnabled = prefs[Keys.OLED_PIXEL_SHIFT_ENABLED] ?: AppPreferences().oledPixelShiftEnabled,
+                oledCheckerboardDimEnabled = prefs[Keys.OLED_CHECKERBOARD_DIM_ENABLED] ?: AppPreferences().oledCheckerboardDimEnabled,
+                grayscaleFilterEnabled = prefs[Keys.GRAYSCALE_FILTER_ENABLED] ?: AppPreferences().grayscaleFilterEnabled,
+                grayscaleFilterStartMinutes = prefs[Keys.GRAYSCALE_FILTER_START_MINUTES] ?: AppPreferences().grayscaleFilterStartMinutes,
+                grayscaleFilterEndMinutes = prefs[Keys.GRAYSCALE_FILTER_END_MINUTES] ?: AppPreferences().grayscaleFilterEndMinutes,
+                redLightFilterEnabled = prefs[Keys.RED_LIGHT_FILTER_ENABLED] ?: AppPreferences().redLightFilterEnabled,
+                redLightFilterStartMinutes = prefs[Keys.RED_LIGHT_FILTER_START_MINUTES] ?: AppPreferences().redLightFilterStartMinutes,
+                redLightFilterEndMinutes = prefs[Keys.RED_LIGHT_FILTER_END_MINUTES] ?: AppPreferences().redLightFilterEndMinutes,
+                autoCheckForUpdatesEnabled = prefs[Keys.AUTO_CHECK_FOR_UPDATES_ENABLED] ?: AppPreferences().autoCheckForUpdatesEnabled,
             )
             val updated = transform(existing)
             prefs[Keys.KEEP_SCREEN_ON] = updated.keepScreenOn
@@ -225,6 +274,15 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.GESTURE_TRANSITION_SHOW_CONSOLE_ENABLED] = updated.gestureTransitionShowConsoleEnabled
             prefs[Keys.GESTURE_TRANSITION_ROUNDED_COVER_ENABLED] = updated.gestureTransitionRoundedCoverEnabled
             prefs[Keys.GESTURE_CONTROLS_FULL_SCREEN_ENABLED] = updated.gestureControlsFullScreenEnabled
+            prefs[Keys.OLED_PIXEL_SHIFT_ENABLED] = updated.oledPixelShiftEnabled
+            prefs[Keys.OLED_CHECKERBOARD_DIM_ENABLED] = updated.oledCheckerboardDimEnabled
+            prefs[Keys.GRAYSCALE_FILTER_ENABLED] = updated.grayscaleFilterEnabled
+            prefs[Keys.GRAYSCALE_FILTER_START_MINUTES] = updated.grayscaleFilterStartMinutes
+            prefs[Keys.GRAYSCALE_FILTER_END_MINUTES] = updated.grayscaleFilterEndMinutes
+            prefs[Keys.RED_LIGHT_FILTER_ENABLED] = updated.redLightFilterEnabled
+            prefs[Keys.RED_LIGHT_FILTER_START_MINUTES] = updated.redLightFilterStartMinutes
+            prefs[Keys.RED_LIGHT_FILTER_END_MINUTES] = updated.redLightFilterEndMinutes
+            prefs[Keys.AUTO_CHECK_FOR_UPDATES_ENABLED] = updated.autoCheckForUpdatesEnabled
         }
     }
 }

@@ -283,6 +283,54 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
             )
         }
 
+        SettingsSection(title = stringResource(R.string.settings_section_oled_protection)) {
+            SwitchRow(
+                title = stringResource(R.string.settings_oled_pixel_shift_title),
+                subtitle = stringResource(R.string.settings_oled_pixel_shift_subtitle),
+                checked = appPrefs.oledPixelShiftEnabled,
+                onCheckedChange = { viewModel.updateAppPreferences { p -> p.copy(oledPixelShiftEnabled = it) } },
+            )
+            SwitchRow(
+                title = stringResource(R.string.settings_oled_checkerboard_dim_title),
+                subtitle = stringResource(R.string.settings_oled_checkerboard_dim_subtitle),
+                checked = appPrefs.oledCheckerboardDimEnabled,
+                onCheckedChange = { viewModel.updateAppPreferences { p -> p.copy(oledCheckerboardDimEnabled = it) } },
+            )
+        }
+
+        SettingsSection(title = stringResource(R.string.settings_section_display_filters)) {
+            SwitchRow(
+                title = stringResource(R.string.settings_grayscale_filter_title),
+                subtitle = stringResource(R.string.settings_grayscale_filter_subtitle),
+                checked = appPrefs.grayscaleFilterEnabled,
+                onCheckedChange = { viewModel.updateAppPreferences { p -> p.copy(grayscaleFilterEnabled = it) } },
+            )
+            AnimatedVisibility(visible = appPrefs.grayscaleFilterEnabled) {
+                FilterScheduleRow(
+                    startMinutes = appPrefs.grayscaleFilterStartMinutes,
+                    endMinutes = appPrefs.grayscaleFilterEndMinutes,
+                    onStartChange = { viewModel.updateAppPreferences { p -> p.copy(grayscaleFilterStartMinutes = it) } },
+                    onEndChange = { viewModel.updateAppPreferences { p -> p.copy(grayscaleFilterEndMinutes = it) } },
+                    modifier = Modifier.padding(bottom = SettingsRowPadding),
+                )
+            }
+            SwitchRow(
+                title = stringResource(R.string.settings_red_light_filter_title),
+                subtitle = stringResource(R.string.settings_red_light_filter_subtitle),
+                checked = appPrefs.redLightFilterEnabled,
+                onCheckedChange = { viewModel.updateAppPreferences { p -> p.copy(redLightFilterEnabled = it) } },
+            )
+            AnimatedVisibility(visible = appPrefs.redLightFilterEnabled) {
+                FilterScheduleRow(
+                    startMinutes = appPrefs.redLightFilterStartMinutes,
+                    endMinutes = appPrefs.redLightFilterEndMinutes,
+                    onStartChange = { viewModel.updateAppPreferences { p -> p.copy(redLightFilterStartMinutes = it) } },
+                    onEndChange = { viewModel.updateAppPreferences { p -> p.copy(redLightFilterEndMinutes = it) } },
+                    modifier = Modifier.padding(bottom = SettingsRowPadding),
+                )
+            }
+        }
+
         SettingsSection(title = stringResource(R.string.settings_section_discovery_auth)) {
             SwitchRow(
                 title = stringResource(R.string.settings_zeroconf_title),
@@ -360,6 +408,12 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                 subtitle = stringResource(R.string.settings_auto_restart_on_crash_subtitle),
                 checked = appPrefs.autoRestartOnCrashEnabled,
                 onCheckedChange = { viewModel.updateAppPreferences { p -> p.copy(autoRestartOnCrashEnabled = it) } },
+            )
+            SwitchRow(
+                title = stringResource(R.string.settings_auto_check_for_updates_title),
+                subtitle = stringResource(R.string.settings_auto_check_for_updates_subtitle),
+                checked = appPrefs.autoCheckForUpdatesEnabled,
+                onCheckedChange = { viewModel.updateAppPreferences { p -> p.copy(autoCheckForUpdatesEnabled = it) } },
             )
             Column(modifier = Modifier.padding(vertical = SettingsRowPadding)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -688,4 +742,73 @@ private fun CredentialsTypeDropdown(selected: CredentialsType, onSelected: (Cred
             }
         }
     }
+}
+
+/** A start/end time pair for a scheduled display filter -- each button opens a [TimePickerDialog]
+ * and shows the picked time as "HH:mm", 24-hour, matching [rememberTimePickerState]'s default
+ * (device locale's is-24-hour setting isn't read here, since a fixed format keeps the two ends of
+ * the range visually comparable regardless of what the system clock format happens to be). Minutes
+ * are minutes-since-midnight (0..1439); an end before the start is a valid overnight range (e.g.
+ * 22:00-06:00), left to whatever reads [AppPreferences.grayscaleFilterStartMinutes]/etc. to
+ * interpret as wrapping past midnight rather than being special-cased here. */
+@Composable
+private fun FilterScheduleRow(
+    startMinutes: Int,
+    endMinutes: Int,
+    onStartChange: (Int) -> Unit,
+    onEndChange: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var editingStart by remember { mutableStateOf(false) }
+    var editingEnd by remember { mutableStateOf(false) }
+
+    Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(SettingsRowPadding)) {
+        OutlinedButton(onClick = { editingStart = true }, modifier = Modifier.weight(1f)) {
+            Text("${stringResource(R.string.settings_filter_schedule_start)} ${formatMinutesOfDay(startMinutes)}")
+        }
+        OutlinedButton(onClick = { editingEnd = true }, modifier = Modifier.weight(1f)) {
+            Text("${stringResource(R.string.settings_filter_schedule_end)} ${formatMinutesOfDay(endMinutes)}")
+        }
+    }
+
+    if (editingStart) {
+        TimePickerDialog(
+            initialMinutes = startMinutes,
+            onConfirm = { onStartChange(it); editingStart = false },
+            onDismiss = { editingStart = false },
+        )
+    }
+    if (editingEnd) {
+        TimePickerDialog(
+            initialMinutes = endMinutes,
+            onConfirm = { onEndChange(it); editingEnd = false },
+            onDismiss = { editingEnd = false },
+        )
+    }
+}
+
+private fun formatMinutesOfDay(minutes: Int): String = "%02d:%02d".format(minutes / 60, minutes % 60)
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun TimePickerDialog(initialMinutes: Int, onConfirm: (Int) -> Unit, onDismiss: () -> Unit) {
+    val state = androidx.compose.material3.rememberTimePickerState(
+        initialHour = initialMinutes / 60,
+        initialMinute = initialMinutes % 60,
+        is24Hour = true,
+    )
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        text = { androidx.compose.material3.TimePicker(state = state) },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = { onConfirm(state.hour * 60 + state.minute) }) {
+                Text(stringResource(R.string.settings_filter_time_picker_confirm))
+            }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.settings_filter_time_picker_cancel))
+            }
+        },
+    )
 }
