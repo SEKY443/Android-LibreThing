@@ -21,13 +21,20 @@ Spotify on your other device. It keeps running in the background like a dedicate
 - **Fake sleep** — dims the screen to pure black while still playing, to protect OLED screens
   from burn-in and stop the display from being a distraction. Fades to black automatically after
   a period of inactivity, or trigger it yourself with one tap.
+- **OLED protection** (optional) — for when the dashboard just sits there for hours: nudge
+  everything on screen by a few pixels once a minute, or dim the screen by blacking out
+  alternating pixels in a checkerboard, so nothing stays lit in the exact same spot the whole time.
+- **Display filters** (optional) — schedule a grayscale or red-light-only mode for certain hours
+  (overnight, say), easier on the eyes and on your night vision in the dark.
 - **Auto-restart** — if the background player crashes for any reason, it restarts itself
   automatically instead of just going silent.
 - **Dynamic color supported** and a few background styles (plain, pure black, or a blurred version of
   the album art).
-- **Cross-network connectivity** — sign in directly (interactive login or a cached token) and
-  it'll show up in your Spotify Connect list from anywhere, not just when you're on the same
-  Wi-Fi network as it.
+- **Cross-network connectivity** — sign in directly (interactive browser login, a device code you
+  enter on another device, or a cached token) and it'll show up in your Spotify Connect list from
+  anywhere, not just when you're on the same Wi-Fi network as it.
+- **Checks for updates** (optional, on by default) — looks for a newer release on GitHub once or
+  twice a day and lets you know, with a one-tap link to go grab it.
 - **A log screen** if something isn't working, so you can see what's going on instead of guessing.
 - **Hardware button support** — media keys on a Bluetooth speaker or headset (play/pause/skip)
   control playback directly, no need to touch the screen.
