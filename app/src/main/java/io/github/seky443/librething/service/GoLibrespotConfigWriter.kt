@@ -139,11 +139,18 @@ object GoLibrespotConfigWriter {
             // STREAM_MUSIC with the daemon's volume; the curve is just steeper than ideal now.
             appendLine("volume_steps: $VOLUME_STEPS")
             appendLine("initial_volume: ${initialVolumeSteps.coerceIn(0, VOLUME_STEPS)}")
-            // Without external_volume, the daemon would otherwise prefer its own separately
-            // persisted state.LastVolume over initial_volume above once it has one from a prior
-            // run -- forcing initial_volume keeps SettingsRepository's persisted fraction (see
-            // DeviceVolumeBridge) as the single source of truth instead of two competing ones.
-            appendLine("ignore_last_volume: true")
+            // daemon/player.go re-runs its NEW_DEVICE volume-init logic on *every* Connect
+            // session, not just process startup -- switching this device away and back within
+            // the same still-running daemon process creates a brand new session each time. With
+            // ignore_last_volume true, every one of those reapplies initial_volume above, which
+            // is a snapshot frozen at process launch -- so any volume change made mid-session
+            // (a real one, or a stale/zero one from a previous run) gets replayed on every
+            // reconnect for that process's whole lifetime, audibly resetting the volume each
+            // time. Leaving this false lets the daemon prefer its own state.LastVolume instead,
+            // which it keeps durably up to date on every real volume change -- initial_volume
+            // above still applies as the fallback for a genuinely fresh install/state (see
+            // GoLibrespotConfigWriter.write's kdoc).
+            appendLine("ignore_last_volume: false")
             appendLine()
             appendLine("normalisation_disabled: ${config.normalisationDisabled}")
             appendLine("normalisation_use_album_gain: ${config.normalisationUseAlbumGain}")

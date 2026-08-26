@@ -48,7 +48,7 @@
     <string name="credentials_type_interactive">Interactive login (browser OAuth)</string>
     <string name="credentials_type_device_auth">Device login (code on another device)</string>
     <string name="credentials_type_spotify_token">Cached Spotify access token</string>
-    <string name="settings_device_auth_hint">After starting, a sign-in code and link will pop up here in the app — no need to be on the same Wi-Fi</string>
+    <string name="settings_device_auth_hint">After starting, a sign-in code and link will pop up here in the app</string>
 
     <!-- DeviceAuthDialog (AppNavHost.kt) -->
     <string name="device_auth_dialog_title">Sign in to Spotify</string>
@@ -60,16 +60,16 @@
     <!-- SettingsScreen.kt: OLED protection section -->
     <string name="settings_section_oled_protection">OLED protection</string>
     <string name="settings_oled_pixel_shift_title">Pixel shift</string>
-    <string name="settings_oled_pixel_shift_subtitle">Nudges everything on screen by a few pixels once a minute, so nothing sits in the exact same spot for hours</string>
+    <string name="settings_oled_pixel_shift_subtitle">Nudges everything on screen by a few pixels once a minute</string>
     <string name="settings_oled_checkerboard_dim_title">Checkerboard dimming</string>
-    <string name="settings_oled_checkerboard_dim_subtitle">Blacks out alternating pixels in a checkerboard, flipping which half every minute — noticeably dims the screen while on</string>
+    <string name="settings_oled_checkerboard_dim_subtitle">Noticeably dims the screen while on</string>
 
     <!-- SettingsScreen.kt: Display filters section -->
     <string name="settings_section_display_filters">Display filters</string>
     <string name="settings_grayscale_filter_title">Grayscale filter</string>
     <string name="settings_grayscale_filter_subtitle">Drains all color from the screen during the scheduled hours</string>
     <string name="settings_red_light_filter_title">Red light filter</string>
-    <string name="settings_red_light_filter_subtitle">Shows everything in red only during the scheduled hours — easier on the eyes and night vision in the dark</string>
+    <string name="settings_red_light_filter_subtitle">Easier on the eyes and night vision in the dark</string>
     <string name="settings_filter_schedule_start">Starts</string>
     <string name="settings_filter_schedule_end">Ends</string>
     <string name="settings_filter_time_picker_confirm">OK</string>
@@ -92,7 +92,7 @@
     <!-- SettingsScreen.kt: Gestures section -->
     <string name="settings_section_gestures">Gestures</string>
     <string name="settings_gesture_controls_title">Gesture controls</string>
-    <string name="settings_gesture_controls_subtitle">Double-tap to play/pause, swipe left/right to skip, swipe up/down for volume. Also works while fake-sleeping (wake always uses a single tap)</string>
+    <string name="settings_gesture_controls_subtitle">Double-tap to play/pause, swipe left/right to skip, swipe up/down for volume. Also works while fake-sleeping</string>
     <string name="settings_gesture_driving_warning">Even though this app was inspired by the Car Thing, I still strongly recommend against using it in a car. If you\'re turning this on to make it easier to control while driving, please don\'t touch it while you\'re actually driving — a device like this has no business being in a car. It\'s too dangerous.</string>
     <string name="settings_gesture_haptic_intensity_label">Haptic strength</string>
     <string name="settings_gesture_haptic_intensity_value_format">%1$.0f%%</string>
@@ -103,7 +103,7 @@
     <string name="settings_gesture_transition_rounded_cover_title">Round the cover while it shrinks</string>
     <string name="settings_gesture_transition_rounded_cover_subtitle">Rounds the corners as the cover shrinks and slides, instead of staying square</string>
     <string name="settings_gesture_controls_full_screen_title">Gesture area covers the whole screen</string>
-    <string name="settings_gesture_controls_full_screen_subtitle">Gestures work anywhere on the dashboard, not just the cover art — buttons and sliders still work normally</string>
+    <string name="settings_gesture_controls_full_screen_subtitle">Gestures work anywhere on the dashboard, not just the cover art</string>
 
     <!-- SettingsScreen.kt: Landscape section -->
     <string name="settings_section_landscape">Landscape</string>

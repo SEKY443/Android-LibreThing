@@ -10,8 +10,11 @@ import java.util.concurrent.TimeUnit
 
 /** A GitHub release newer than what's currently installed. [version] has no leading "v" (the
  * repo's tags are inconsistent about that prefix, so it's stripped before comparison and
- * before display, rather than carried through as-is). */
-data class UpdateInfo(val version: String, val releaseUrl: String)
+ * before display, rather than carried through as-is). [changelog] is the release's raw
+ * Markdown body, blank if GitHub returned none -- shown as-is rather than rendered, since a
+ * plain-text approximation of Markdown reads fine for the short bullet-list changelogs this
+ * project publishes. */
+data class UpdateInfo(val version: String, val releaseUrl: String, val changelog: String)
 
 /**
  * Checks SEKY443/Android-LibreThing's GitHub releases for a version newer than the one
@@ -39,6 +42,7 @@ object UpdateChecker {
     private data class ReleaseDto(
         val tag_name: String = "",
         val html_url: String = "",
+        val body: String = "",
         val draft: Boolean = false,
         val prerelease: Boolean = false,
     )
@@ -59,7 +63,11 @@ object UpdateChecker {
         val remoteVersion = dto.tag_name.removePrefix("v").removePrefix("V")
         if (!isNewer(remoteVersion, currentVersionName)) return@withContext null
 
-        UpdateInfo(version = remoteVersion, releaseUrl = dto.html_url.ifBlank { RELEASES_PAGE_URL })
+        UpdateInfo(
+            version = remoteVersion,
+            releaseUrl = dto.html_url.ifBlank { RELEASES_PAGE_URL },
+            changelog = dto.body.trim(),
+        )
     }
 
     /** Numeric per-segment comparison ("1.10" beats "1.9", unlike a plain string compare) --

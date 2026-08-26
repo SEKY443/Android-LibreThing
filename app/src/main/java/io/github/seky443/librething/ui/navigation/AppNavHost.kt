@@ -18,12 +18,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
@@ -219,9 +223,11 @@ private fun DeviceAuthDialog(prompt: DeviceAuthPrompt, onDismiss: () -> Unit) {
 }
 
 /** Shown once per newly-seen GitHub release -- see [DashboardViewModel.checkForUpdateIfDue] and
- * [UpdateChecker]. "View release" opens [UpdateInfo.releaseUrl] rather than requiring an
- * in-app changelog; "Later" persists the dismissal (via [DashboardViewModel.dismissUpdate]) so
- * this same release doesn't prompt again on a future launch. */
+ * [UpdateChecker]. Displays the release's own changelog text ([UpdateInfo.changelog]) inline so
+ * there's something to decide on without leaving the app; "View release" still opens
+ * [UpdateInfo.releaseUrl] for the full page. "Later" persists the dismissal (via
+ * [DashboardViewModel.dismissUpdate]) so this same release doesn't prompt again on a future
+ * launch. */
 @Composable
 private fun UpdateAvailableDialog(info: UpdateInfo, onDismiss: () -> Unit) {
     val context = LocalContext.current
@@ -229,7 +235,22 @@ private fun UpdateAvailableDialog(info: UpdateInfo, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.update_available_dialog_title)) },
-        text = { Text(stringResource(R.string.update_available_dialog_body, info.version)) },
+        text = {
+            Column {
+                Text(stringResource(R.string.update_available_dialog_body, info.version))
+                if (info.changelog.isNotBlank()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = info.changelog,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 240.dp)
+                            .verticalScroll(rememberScrollState()),
+                    )
+                }
+            }
+        },
         confirmButton = {
             TextButton(onClick = {
                 try {

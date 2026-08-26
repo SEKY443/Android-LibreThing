@@ -77,3 +77,18 @@ wlan0 (resolved by the Android app)` / `using built-in mDNS responder` and reach
 `Discoverable`, and stayed there through a multi-minute soak test with no crash and no further
 netlink denials. The app's Settings workaround (Zeroconf off, Interactive/Cached-token
 authentication) is no longer necessary but is left in place as a working alternative.
+
+## `dealer/recv.go`'s `handleMessage` closed-channel race (no longer a local patch)
+
+Not Android-specific, unlike the two above -- a genuine race in `dealer/recv.go`'s
+`handleMessage`, just one that this app's usage pattern (switching Spotify Connect away from
+this device and back repeatedly, in quick succession) exercised far more reliably than the
+fork's normal usage does. Found on-device: switching away and back a few times crashed the
+whole daemon process with `panic: send on closed channel` at `dealer/recv.go:217`, in
+`handleMessage` -> `dispatchLoop`, restarting it (see `SpotifyConnectService`'s auto-restart)
+and dropping the in-flight Connect session each time. `handleRequest` right below it already
+guarded its own equivalent send with `select { case recv.c <- ...: case <-d.done: return }`;
+`handleMessage`'s loop just never got the same treatment.
+
+Fixed upstream directly in `SEKY443/go-librespot-termux` (commit `fd606a7`) rather than kept as
+a patch here, since it isn't an Android-only issue -- every build already gets it for free.

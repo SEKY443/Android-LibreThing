@@ -24,6 +24,7 @@ import io.github.seky443.librething.service.model.ConnectionState
 import io.github.seky443.librething.service.model.DeviceAuthPrompt
 import io.github.seky443.librething.service.model.LogEntry
 import io.github.seky443.librething.service.model.LogLevel
+import io.github.seky443.librething.service.model.PlayerStatus
 import io.github.seky443.librething.service.model.TrackInfo
 import io.github.seky443.librething.util.GoLibrespotPaths
 import java.util.concurrent.atomic.AtomicBoolean
@@ -172,13 +173,7 @@ class SpotifyConnectService : LifecycleService() {
             if (status != null) {
                 restartAttempts = 0
                 SpotifyConnectServiceState.setDeviceAuthPrompt(null)
-                SpotifyConnectServiceState.setConnectionState(
-                    when {
-                        status.stopped -> ConnectionState.Discoverable
-                        status.paused -> ConnectionState.Paused
-                        else -> ConnectionState.Playing
-                    }
-                )
+                SpotifyConnectServiceState.setConnectionState(connectionStateFor(status))
                 SpotifyConnectServiceState.setNowPlaying(status.track)
                 SpotifyConnectServiceState.setVolume(status.volume, status.volumeSteps)
                 return
@@ -186,6 +181,12 @@ class SpotifyConnectService : LifecycleService() {
             if (attempt == 0) SpotifyConnectServiceState.setConnectionState(ConnectionState.Discoverable)
             kotlinx.coroutines.delay(1000)
         }
+    }
+
+    private fun connectionStateFor(status: PlayerStatus): ConnectionState = when {
+        status.stopped -> ConnectionState.Discoverable
+        status.paused -> ConnectionState.Paused
+        else -> ConnectionState.Playing
     }
 
     /**
@@ -222,9 +223,25 @@ class SpotifyConnectService : LifecycleService() {
                 SpotifyConnectServiceState.setConnectionState(ConnectionState.Discoverable)
                 SpotifyConnectServiceState.setNowPlaying(null)
             }
-            PlayerEvent.Active -> SpotifyConnectServiceState.setConnectionState(ConnectionState.Playing)
+            PlayerEvent.Active -> refreshConnectionStateFromStatus()
             is PlayerEvent.Volume -> SpotifyConnectServiceState.setVolume(event.value, event.max)
             is PlayerEvent.Seek -> SpotifyConnectServiceState.updatePosition(event.positionMs, event.durationMs)
+        }
+    }
+
+    /**
+     * "active" only means this device just became the Connect session's target -- it fires the
+     * same way whether the incoming session is playing or paused, so treating it as "now
+     * playing" outright (as this used to) caused a brief flash of real audio on connect when the
+     * other client was actually paused, before a later event corrected it back. Fetch the real
+     * status instead of assuming, so nothing audible happens unless go-librespot says it should.
+     */
+    private fun refreshConnectionStateFromStatus() {
+        val client = apiClient ?: return
+        lifecycleScope.launch(Dispatchers.IO) {
+            val status = client.getStatus() ?: return@launch
+            SpotifyConnectServiceState.setConnectionState(connectionStateFor(status))
+            SpotifyConnectServiceState.setNowPlaying(status.track)
         }
     }
 
