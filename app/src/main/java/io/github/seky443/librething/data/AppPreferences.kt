@@ -40,6 +40,8 @@ data class AppPreferences(
     val redLightFilterStartMinutes: Int = 22 * 60,
     val redLightFilterEndMinutes: Int = 6 * 60,
     val autoCheckForUpdatesEnabled: Boolean = true,
+    val autoClearCacheEnabled: Boolean = false,
+    val autoClearCacheMaxSizeMb: Int = 500,
 )
 
 enum class ThemeMode(val wireValue: String, @param:StringRes val labelRes: Int) {

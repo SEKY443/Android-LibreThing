@@ -161,6 +161,12 @@
     <string name="settings_auto_restart_on_crash_subtitle">Relaunches go-librespot after a fatal error, up to 5 attempts before giving up</string>
     <string name="settings_auto_check_for_updates_title">Check for updates automatically</string>
     <string name="settings_auto_check_for_updates_subtitle">Prompts when a newer version is out on GitHub, at most twice a day</string>
+    <string name="settings_auto_clear_cache_title">Clear audio cache automatically</string>
+    <string name="settings_auto_clear_cache_subtitle">Wipes cached track audio once it grows past the limit below, checked on every start</string>
+    <string name="settings_auto_clear_cache_max_size_label">Max cache size</string>
+    <string name="settings_auto_clear_cache_max_size_value_format">%1$dMB</string>
+    <string name="settings_auto_clear_cache_range_min">50MB</string>
+    <string name="settings_auto_clear_cache_range_max">2GB</string>
 
     <!-- UpdateAvailableDialog (AppNavHost.kt) -->
     <string name="update_available_dialog_title">Update available</string>

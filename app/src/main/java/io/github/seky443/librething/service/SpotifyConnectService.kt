@@ -19,6 +19,7 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaStyleNotificationHelper
 import io.github.seky443.librething.MainActivity
 import io.github.seky443.librething.R
+import io.github.seky443.librething.data.AppPreferences
 import io.github.seky443.librething.data.SettingsRepository
 import io.github.seky443.librething.service.model.ConnectionState
 import io.github.seky443.librething.service.model.DeviceAuthPrompt
@@ -134,15 +135,22 @@ class SpotifyConnectService : LifecycleService() {
         lifecycleScope.launch(Dispatchers.IO) {
             val appPrefs = settingsRepository.appPreferences.first()
             if (appPrefs.holdWakeLock && wakeLock?.isHeld != true) acquireWakeLock()
+            clearCacheIfOverLimit(appPrefs)
 
             val config = settingsRepository.goLibrespotConfig.first()
             val initialVolumeSteps = (settingsRepository.lastVolumeFraction.first() * GoLibrespotConfigWriter.VOLUME_STEPS)
                 .roundToInt()
 
-            val player = PipeAudioPlayer(GoLibrespotPaths.audioPipe(applicationContext)) { message ->
+            // Reused across an auto-restart (see handleProcessExit) rather than recreated:
+            // PipeAudioPlayer's reader loop already tolerates the daemon's write end closing
+            // and reopening (that's the normal Connect-session-transfer case), so a crash
+            // restart doesn't need a fresh AudioTrack either -- and releasing/recreating one
+            // is a well-known trigger for Android to briefly tear down and re-establish the
+            // active Bluetooth A2DP route, which shows up as the peripheral disconnecting and
+            // immediately reconnecting on every crash restart.
+            val player = pipeAudioPlayer ?: PipeAudioPlayer(GoLibrespotPaths.audioPipe(applicationContext)) { message ->
                 SpotifyConnectServiceState.appendLog(LogEntry(LogLevel.WARN, message))
-            }
-            pipeAudioPlayer = player
+            }.also { pipeAudioPlayer = it }
             player.start()
 
             val client = GoLibrespotApiClient(
@@ -164,6 +172,21 @@ class SpotifyConnectService : LifecycleService() {
             client.connectEvents(lifecycleScope)
             pollStatusUntilReady(client)
         }
+    }
+
+    /** Checked before every daemon launch (including an auto-restart) rather than on a timer:
+     * a plain recursive size sum over the cache directory is cheap next to everything else this
+     * function already does, so there's no need for a separate schedule. Clearing wipes tracks
+     * the daemon would otherwise reuse from cache, but only once actually over the configured
+     * limit -- see AppPreferences.autoClearCacheEnabled/autoClearCacheMaxSizeMb. */
+    private fun clearCacheIfOverLimit(appPrefs: AppPreferences) {
+        if (!appPrefs.autoClearCacheEnabled) return
+        val limitBytes = appPrefs.autoClearCacheMaxSizeMb.toLong() * 1024 * 1024
+        if (GoLibrespotPaths.cacheDirSizeBytes(applicationContext) <= limitBytes) return
+        GoLibrespotPaths.clearCacheDir(applicationContext)
+        SpotifyConnectServiceState.appendLog(
+            LogEntry(LogLevel.INFO, "Cleared audio cache (exceeded ${appPrefs.autoClearCacheMaxSizeMb}MB limit)")
+        )
     }
 
     /** The daemon's API server needs a moment to bind after the process starts; poll briefly. */
@@ -277,20 +300,27 @@ class SpotifyConnectService : LifecycleService() {
             SpotifyConnectServiceState.appendLog(
                 LogEntry(LogLevel.WARN, "Restarting go-librespot automatically (attempt $restartAttempts/$MAX_CONSECUTIVE_RESTART_ATTEMPTS)")
             )
-            teardownDaemon()
+            teardownDaemonProcess()
             kotlinx.coroutines.delay(RESTART_DELAY_MILLIS)
             launchDaemon()
         }
     }
 
-    /** Tears down everything tied to one daemon launch (the process, its FIFO player, and the
-     * API client) without touching per-service-lifetime resources (wake lock, media session,
-     * volume bridge) -- shared by [onDestroy] and by [handleProcessExit]'s auto-restart path,
-     * which needs the same cleanup before calling [launchDaemon] again. */
-    private fun teardownDaemon() {
+    /** Tears down the daemon process and its API client, without touching the FIFO audio
+     * player -- see [pipeAudioPlayer]'s reuse comment in [launchDaemon] for why a crash restart
+     * deliberately keeps the same instance (and its [android.media.AudioTrack]) alive instead
+     * of tearing it down here too. */
+    private fun teardownDaemonProcess() {
         apiClient?.disconnectEvents()
         apiClient?.shutdown()
         processController?.stop()
+    }
+
+    /** Tears down everything tied to one daemon launch (the process, its FIFO player, and the
+     * API client) -- the full version of [teardownDaemonProcess], used only for an actual
+     * service shutdown ([onDestroy]), not a crash auto-restart. */
+    private fun teardownDaemon() {
+        teardownDaemonProcess()
         pipeAudioPlayer?.stop()
     }
 

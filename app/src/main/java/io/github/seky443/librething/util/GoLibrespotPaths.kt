@@ -19,6 +19,16 @@ object GoLibrespotPaths {
 
     fun cacheDir(context: Context): File = File(context.cacheDir, "golibrespot-audio-cache").apply { mkdirs() }
 
+    /** Total size in bytes of everything currently in [cacheDir], walked recursively. */
+    fun cacheDirSizeBytes(context: Context): Long =
+        cacheDir(context).walkTopDown().filter { it.isFile }.sumOf { it.length() }
+
+    /** Deletes everything under [cacheDir], leaving the directory itself in place (the daemon
+     * expects it to already exist when it starts) -- see AppPreferences.autoClearCacheEnabled. */
+    fun clearCacheDir(context: Context) {
+        cacheDir(context).listFiles()?.forEach { it.deleteRecursively() }
+    }
+
     fun audioPipe(context: Context): File = File(configDir(context), "audio.pipe")
 
     fun daemonBinary(context: Context): File =

@@ -13,6 +13,7 @@ import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -57,6 +58,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Paint
@@ -110,6 +112,19 @@ fun AppNavHost(onSuppressSystemVolumePanelChange: (Boolean) -> Unit) {
     val oledPixelShiftEnabled by dashboardViewModel.oledPixelShiftEnabled.collectAsState()
     val oledCheckerboardDimEnabled by dashboardViewModel.oledCheckerboardDimEnabled.collectAsState()
     val pixelShiftOffset = rememberOledPixelShiftOffset(oledPixelShiftEnabled)
+    // Shifting the whole page by a few px would otherwise expose a strip of whatever's behind
+    // it at the screen edge -- painting this backdrop first, unshifted, means that strip is
+    // always a plausible continuation of the page's own background instead of an unrelated
+    // window-default color. Can't replicate the blurred-cover-art or per-track tinted colors
+    // here (those are computed deep inside SimpleDashboardScreen from the current track's
+    // palette), so this only matches exactly for the OLED-black style; elsewhere it falls back
+    // to the plain theme background, which is what the tinted style is itself blended from.
+    val dashboardBackgroundStyle by dashboardViewModel.dashboardBackgroundStyle.collectAsState()
+    val pixelShiftBackdropColor = if (dashboardBackgroundStyle == DashboardBackgroundStyle.OLED_BLACK) {
+        Color.Black
+    } else {
+        MaterialTheme.colorScheme.background
+    }
 
     // Scheduled display filters -- same outermost-level placement as the OLED effects above,
     // for the same reason (covers Settings too, not just the Dashboard).
@@ -133,13 +148,19 @@ fun AppNavHost(onSuppressSystemVolumePanelChange: (Boolean) -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
-            .offset(x = pixelShiftOffset.x, y = pixelShiftOffset.y)
-            .displayColorFilter(displayFilterMatrix),
+            .background(pixelShiftBackdropColor),
     ) {
-        if (nerdModeEnabled) {
-            NerdModeNavHost(dashboardViewModel)
-        } else {
-            SimpleModeNavHost(dashboardViewModel, onSuppressSystemVolumePanelChange)
+        Box(
+            Modifier
+                .fillMaxSize()
+                .offset(x = pixelShiftOffset.x, y = pixelShiftOffset.y)
+                .displayColorFilter(displayFilterMatrix),
+        ) {
+            if (nerdModeEnabled) {
+                NerdModeNavHost(dashboardViewModel)
+            } else {
+                SimpleModeNavHost(dashboardViewModel, onSuppressSystemVolumePanelChange)
+            }
         }
         if (oledCheckerboardDimEnabled) {
             OledCheckerboardOverlay(Modifier.fillMaxSize())

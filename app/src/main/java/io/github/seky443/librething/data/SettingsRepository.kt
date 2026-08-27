@@ -66,6 +66,8 @@ class SettingsRepository(private val context: Context) {
         val RED_LIGHT_FILTER_START_MINUTES = intPreferencesKey("red_light_filter_start_minutes")
         val RED_LIGHT_FILTER_END_MINUTES = intPreferencesKey("red_light_filter_end_minutes")
         val AUTO_CHECK_FOR_UPDATES_ENABLED = booleanPreferencesKey("auto_check_for_updates_enabled")
+        val AUTO_CLEAR_CACHE_ENABLED = booleanPreferencesKey("auto_clear_cache_enabled")
+        val AUTO_CLEAR_CACHE_MAX_SIZE_MB = intPreferencesKey("auto_clear_cache_max_size_mb")
         val LAST_VOLUME_FRACTION = floatPreferencesKey("last_volume_fraction")
         val LAST_SESSION_END_AT_MILLIS = longPreferencesKey("last_session_end_at_millis")
         val LAST_DISMISSED_UPDATE_VERSION = stringPreferencesKey("last_dismissed_update_version")
@@ -171,6 +173,8 @@ class SettingsRepository(private val context: Context) {
             redLightFilterStartMinutes = prefs[Keys.RED_LIGHT_FILTER_START_MINUTES] ?: defaults.redLightFilterStartMinutes,
             redLightFilterEndMinutes = prefs[Keys.RED_LIGHT_FILTER_END_MINUTES] ?: defaults.redLightFilterEndMinutes,
             autoCheckForUpdatesEnabled = prefs[Keys.AUTO_CHECK_FOR_UPDATES_ENABLED] ?: defaults.autoCheckForUpdatesEnabled,
+            autoClearCacheEnabled = prefs[Keys.AUTO_CLEAR_CACHE_ENABLED] ?: defaults.autoClearCacheEnabled,
+            autoClearCacheMaxSizeMb = prefs[Keys.AUTO_CLEAR_CACHE_MAX_SIZE_MB] ?: defaults.autoClearCacheMaxSizeMb,
         )
     }
 
@@ -246,6 +250,8 @@ class SettingsRepository(private val context: Context) {
                 redLightFilterStartMinutes = prefs[Keys.RED_LIGHT_FILTER_START_MINUTES] ?: AppPreferences().redLightFilterStartMinutes,
                 redLightFilterEndMinutes = prefs[Keys.RED_LIGHT_FILTER_END_MINUTES] ?: AppPreferences().redLightFilterEndMinutes,
                 autoCheckForUpdatesEnabled = prefs[Keys.AUTO_CHECK_FOR_UPDATES_ENABLED] ?: AppPreferences().autoCheckForUpdatesEnabled,
+                autoClearCacheEnabled = prefs[Keys.AUTO_CLEAR_CACHE_ENABLED] ?: AppPreferences().autoClearCacheEnabled,
+                autoClearCacheMaxSizeMb = prefs[Keys.AUTO_CLEAR_CACHE_MAX_SIZE_MB] ?: AppPreferences().autoClearCacheMaxSizeMb,
             )
             val updated = transform(existing)
             prefs[Keys.KEEP_SCREEN_ON] = updated.keepScreenOn
@@ -283,6 +289,8 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.RED_LIGHT_FILTER_START_MINUTES] = updated.redLightFilterStartMinutes
             prefs[Keys.RED_LIGHT_FILTER_END_MINUTES] = updated.redLightFilterEndMinutes
             prefs[Keys.AUTO_CHECK_FOR_UPDATES_ENABLED] = updated.autoCheckForUpdatesEnabled
+            prefs[Keys.AUTO_CLEAR_CACHE_ENABLED] = updated.autoClearCacheEnabled
+            prefs[Keys.AUTO_CLEAR_CACHE_MAX_SIZE_MB] = updated.autoClearCacheMaxSizeMb
         }
     }
 }

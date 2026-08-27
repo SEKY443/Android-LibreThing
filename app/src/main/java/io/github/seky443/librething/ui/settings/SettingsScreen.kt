@@ -415,6 +415,26 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                 checked = appPrefs.autoCheckForUpdatesEnabled,
                 onCheckedChange = { viewModel.updateAppPreferences { p -> p.copy(autoCheckForUpdatesEnabled = it) } },
             )
+            SwitchRow(
+                title = stringResource(R.string.settings_auto_clear_cache_title),
+                subtitle = stringResource(R.string.settings_auto_clear_cache_subtitle),
+                checked = appPrefs.autoClearCacheEnabled,
+                onCheckedChange = { viewModel.updateAppPreferences { p -> p.copy(autoClearCacheEnabled = it) } },
+            )
+            AnimatedVisibility(visible = appPrefs.autoClearCacheEnabled) {
+                Column(modifier = Modifier.padding(start = 16.dp)) {
+                    LabeledSlider(
+                        label = stringResource(R.string.settings_auto_clear_cache_max_size_label),
+                        valueText = stringResource(R.string.settings_auto_clear_cache_max_size_value_format, appPrefs.autoClearCacheMaxSizeMb),
+                        value = appPrefs.autoClearCacheMaxSizeMb.toFloat(),
+                        onValueChange = { viewModel.updateAppPreferences { p -> p.copy(autoClearCacheMaxSizeMb = it.roundToInt()) } },
+                        valueRange = 50f..2000f,
+                        steps = 38,
+                        rangeStartText = stringResource(R.string.settings_auto_clear_cache_range_min),
+                        rangeEndText = stringResource(R.string.settings_auto_clear_cache_range_max),
+                    )
+                }
+            }
             Column(modifier = Modifier.padding(vertical = SettingsRowPadding)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Icon(
