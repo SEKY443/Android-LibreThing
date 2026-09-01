@@ -61,6 +61,13 @@ object SpotifyConnectServiceState {
 
     @Volatile private var apiClient: GoLibrespotApiClient? = null
 
+    /** Set by [DeviceVolumeBridge] while it's running; lets [setVolumeFromUi] mirror an
+     * app-originated volume change onto `STREAM_MUSIC` without this object needing a
+     * [android.content.Context] of its own. Null while no [SpotifyConnectService] instance is
+     * alive, in which case [setVolumeFromUi] just skips the mirror -- there's no stream to sync
+     * to anyway. */
+    @Volatile internal var localVolumeSync: ((value: Int, max: Int) -> Unit)? = null
+
     internal fun attach(client: GoLibrespotApiClient?) {
         apiClient = client
         _isServiceRunning.value = client != null
@@ -112,5 +119,23 @@ object SpotifyConnectServiceState {
     fun next() = apiClient?.next()
     fun previous() = apiClient?.previous()
     fun setVolumeCommand(value: Int) = apiClient?.setVolume(value)
+
+    /**
+     * Same as [setVolumeCommand], but also mirrors the change onto the device's own
+     * `STREAM_MUSIC` volume -- for a change that originates from this app's own on-screen
+     * slider. [DeviceVolumeBridge] already syncs the other direction (hardware/Bluetooth key
+     * presses -> remote), but deliberately never mirrors a *remote*-driven change (another
+     * Spotify Connect client, or the daemon's own reported volume) back onto `STREAM_MUSIC` --
+     * see its kdoc for why (rounding-induced audible correction jumps on a round trip). This
+     * app's own slider isn't a round trip, though: it's the same local user gesture, so mirroring
+     * it here immediately has no such delay to introduce a jump. Without this, dragging the
+     * in-app slider never touched `STREAM_MUSIC` at all, so it silently drifted out of sync with
+     * whatever the system volume UI (or another app sharing `STREAM_MUSIC`) showed.
+     */
+    fun setVolumeFromUi(value: Int, max: Int) {
+        apiClient?.setVolume(value)
+        localVolumeSync?.invoke(value, max)
+    }
+
     fun seek(positionMs: Long) = apiClient?.seek(positionMs)
 }

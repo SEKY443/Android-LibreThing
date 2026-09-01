@@ -70,6 +70,14 @@ class SpotifyConnectService : LifecycleService() {
         private const val MAX_CONSECUTIVE_RESTART_ATTEMPTS = 5
         private const val RESTART_DELAY_MILLIS = 2000L
 
+        // A hung-but-still-alive daemon (a goroutine deadlock rather than a crash -- see the
+        // two channel-send races already found and fixed in dealer/recv.go and
+        // output/driver-pipe-unix.go; nothing guarantees those were the only ones) never fires
+        // handleProcessExit, since the process never actually exits on its own. Polling /status
+        // on this slow cadence once startup succeeds catches that case too.
+        private const val HEALTH_CHECK_INTERVAL_MILLIS = 30_000L
+        private const val HEALTH_CHECK_FAILURE_THRESHOLD = 3
+
         fun start(context: Context) {
             ContextCompat.startForegroundService(context, Intent(context, SpotifyConnectService::class.java))
         }
@@ -86,6 +94,7 @@ class SpotifyConnectService : LifecycleService() {
     private var wakeLock: PowerManager.WakeLock? = null
     private val authUrlOpened = AtomicBoolean(false)
     private var restartAttempts = 0
+    private var healthCheckJob: kotlinx.coroutines.Job? = null
 
     // Backs hardware/Bluetooth media-button routing (play/pause/next/previous) into the same
     // GoLibrespotApiClient calls the Dashboard UI uses, and lets a paired speaker's own volume
@@ -161,16 +170,52 @@ class SpotifyConnectService : LifecycleService() {
             SpotifyConnectServiceState.attach(client)
             SpotifyConnectServiceState.setConnectionState(ConnectionState.Starting)
 
-            val controller = GoProcessController(
+            // onExit checks that `controller` is still the active processController before
+            // acting: teardownDaemonProcess() only kills the process, it doesn't stop this
+            // controller's own reader thread from eventually observing that exit and firing
+            // onExit anyway -- for a real crash that's harmless (this exact callback already
+            // ran once and this launch replaced it), but for a launchDaemon() triggered by
+            // startHealthCheck (the process was still alive, just hung) the old reader thread's
+            // delayed exit report would otherwise land on whatever new session has since
+            // started and spuriously restart it too.
+            lateinit var controller: GoProcessController
+            controller = GoProcessController(
                 context = applicationContext,
                 onLog = ::handleDaemonLog,
-                onExit = ::handleProcessExit,
+                onExit = { exitCode -> if (processController === controller) handleProcessExit(exitCode) },
             )
             processController = controller
             controller.start(config, initialVolumeSteps)
 
             client.connectEvents(lifecycleScope)
             pollStatusUntilReady(client)
+            startHealthCheck(client)
+        }
+    }
+
+    /** Started once startup polling succeeds; see [HEALTH_CHECK_INTERVAL_MILLIS]'s kdoc. */
+    private fun startHealthCheck(client: GoLibrespotApiClient) {
+        healthCheckJob = lifecycleScope.launch(Dispatchers.IO) {
+            var consecutiveFailures = 0
+            while (true) {
+                kotlinx.coroutines.delay(HEALTH_CHECK_INTERVAL_MILLIS)
+                val reachable = runCatching { client.getStatus() }.getOrNull() != null
+                if (reachable) {
+                    consecutiveFailures = 0
+                    continue
+                }
+                consecutiveFailures++
+                if (consecutiveFailures < HEALTH_CHECK_FAILURE_THRESHOLD) continue
+                SpotifyConnectServiceState.appendLog(
+                    LogEntry(
+                        LogLevel.ERROR,
+                        "go-librespot stopped responding to $HEALTH_CHECK_FAILURE_THRESHOLD consecutive status checks -- forcing a restart",
+                    )
+                )
+                SpotifyConnectServiceState.setConnectionState(ConnectionState.Error("go-librespot stopped responding"))
+                scheduleRestart()
+                return@launch
+            }
         }
     }
 
@@ -279,11 +324,17 @@ class SpotifyConnectService : LifecycleService() {
         }
 
         SpotifyConnectServiceState.setConnectionState(ConnectionState.Error("go-librespot exited (code $exitCode)"))
+        scheduleRestart()
+    }
 
-        // onExit fires from GoProcessController's own reader thread, not a coroutine -- hop onto
-        // lifecycleScope both to read the auto-restart preference and, if it applies, to delay
-        // before relaunching. lifecycleScope is cancelled as soon as the service actually starts
-        // tearing down (e.g. the user hit Stop), so a restart already in flight cannot outlive it.
+    /**
+     * Shared by a real crash ([handleProcessExit]) and a detected hang ([startHealthCheck]).
+     * onExit fires from GoProcessController's own reader thread, not a coroutine -- hop onto
+     * lifecycleScope both to read the auto-restart preference and, if it applies, to delay
+     * before relaunching. lifecycleScope is cancelled as soon as the service actually starts
+     * tearing down (e.g. the user hit Stop), so a restart already in flight cannot outlive it.
+     */
+    private fun scheduleRestart() {
         lifecycleScope.launch(Dispatchers.IO) {
             val autoRestartEnabled = settingsRepository.appPreferences.first().autoRestartOnCrashEnabled
             if (!autoRestartEnabled || restartAttempts >= MAX_CONSECUTIVE_RESTART_ATTEMPTS) {
@@ -311,6 +362,8 @@ class SpotifyConnectService : LifecycleService() {
      * deliberately keeps the same instance (and its [android.media.AudioTrack]) alive instead
      * of tearing it down here too. */
     private fun teardownDaemonProcess() {
+        healthCheckJob?.cancel()
+        healthCheckJob = null
         apiClient?.disconnectEvents()
         apiClient?.shutdown()
         processController?.stop()

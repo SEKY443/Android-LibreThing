@@ -25,15 +25,26 @@ import kotlin.math.roundToInt
  * reported via [SpotifyConnectServiceState.volume]): a connected Bluetooth speaker's hardware
  * volume controls (routed by Android to `STREAM_MUSIC` via AVRCP) move the in-app volume too.
  *
- * Deliberately *not* bidirectional -- remote-driven changes (this app's own slider, or another
- * Spotify Connect client) used to be mirrored back onto `STREAM_MUSIC` as well, but
- * `STREAM_MUSIC` only has a handful of discrete steps (commonly ~15) against the daemon's own
- * 100, so converting a precise remote value down to the nearest device step and writing it
- * introduced a small but audible correction shortly after every remote-driven change -- and on a
- * Bluetooth speaker, where `STREAM_MUSIC` drives the actual analog gain via AVRCP, that rounding
- * step is a real, physical volume jump, not just an internal recalculation. Dropping that
- * direction trades away a speaker's own volume display/knob position tracking remote-driven
- * changes (it now only moves from its own physical buttons) for eliminating that jump entirely.
+ * Not bidirectional for *remote*-driven changes -- another Spotify Connect client's volume, or
+ * the daemon's own echo of a device-originated push, used to be mirrored back onto
+ * `STREAM_MUSIC` too, but `STREAM_MUSIC` only has a handful of discrete steps (commonly ~15)
+ * against the daemon's own 100, so converting a precise remote value down to the nearest device
+ * step and writing it introduced a small but audible correction shortly after every remote-driven
+ * change -- and on a Bluetooth speaker, where `STREAM_MUSIC` drives the actual analog gain via
+ * AVRCP, that rounding step is a real, physical volume jump, not just an internal recalculation.
+ * Dropping that direction trades away a speaker's own volume display/knob position tracking
+ * remote-driven changes (it now only moves from its own physical buttons) for eliminating that
+ * jump entirely.
+ *
+ * [SpotifyConnectServiceState.setVolumeFromUi] (this app's own on-screen slider) is the one
+ * exception: it pushes into [applyUiVolumeToDeviceStream] directly, which -- unlike the case
+ * above -- isn't a round trip through the daemon, so there's no delay for a jump to be audible
+ * in. Doing so still fires this same receiver as an echo, though, so [lastUiPushAtMs] suppresses
+ * that one broadcast the same way a device-originated push briefly suppressed the daemon's echo
+ * before that mechanism was removed (see this class's git history) -- without it, the echo's own
+ * rounding (`STREAM_MUSIC`'s coarse steps quantized back up to the daemon's 100) would bounce a
+ * slightly different value back to the daemon on every slider release, drifting it exactly the
+ * way mirroring every remote change used to.
  *
  * Device-side changes are debounced: holding a hardware/Bluetooth volume key fires a burst of
  * `STREAM_MUSIC` broadcasts (one per step), and posting straight through -- one blocking HTTP
@@ -59,6 +70,10 @@ internal class DeviceVolumeBridge(
 
     /** Latest STREAM_MUSIC value not yet pushed to the daemon; null means nothing pending. */
     private val pendingDeviceVolume = MutableStateFlow<Int?>(null)
+
+    /** [SystemClock.elapsedRealtime] of the last [applyUiVolumeToDeviceStream] push; see class
+     * kdoc's note on [SpotifyConnectServiceState.setVolumeFromUi]. */
+    @Volatile private var lastUiPushAtMs = 0L
 
     fun start() {
         if (audioManager == null) return
@@ -93,6 +108,10 @@ internal class DeviceVolumeBridge(
                 if (intent.getIntExtra(EXTRA_VOLUME_STREAM_TYPE, -1) != AudioManager.STREAM_MUSIC) return
                 val deviceValue = intent.getIntExtra(EXTRA_VOLUME_STREAM_VALUE, -1)
                 if (deviceValue < 0) return
+                // Our own echo from applyUiVolumeToDeviceStream -- the daemon already has the
+                // exact value the slider was set to, so there's nothing to push back, only
+                // rounding drift to introduce (see class kdoc).
+                if (SystemClock.elapsedRealtime() - lastUiPushAtMs < SUPPRESS_UI_ECHO_MS) return
                 // Instant local feedback: shown right away, well before the debounced push
                 // below (and that push's network round trip to the daemon) ever completes.
                 val deviceMax = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
@@ -112,9 +131,12 @@ internal class DeviceVolumeBridge(
         }
         receiver = streamReceiver
         ContextCompat.registerReceiver(context, streamReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+
+        SpotifyConnectServiceState.localVolumeSync = ::applyUiVolumeToDeviceStream
     }
 
     fun stop() {
+        SpotifyConnectServiceState.localVolumeSync = null
         remoteObserverJob?.cancel()
         remoteObserverJob = null
         deviceDebounceJob?.cancel()
@@ -124,6 +146,23 @@ internal class DeviceVolumeBridge(
         SpotifyConnectServiceState.setLocalDeviceVolumeFraction(null)
         receiver?.let { context.unregisterReceiver(it) }
         receiver = null
+    }
+
+    /** Mirrors an app-originated (in-app slider) volume change onto `STREAM_MUSIC` -- see
+     * [SpotifyConnectServiceState.setVolumeFromUi], the only caller. */
+    private fun applyUiVolumeToDeviceStream(remoteValue: Int, remoteMax: Int) {
+        val manager = audioManager ?: return
+        if (remoteMax <= 0) return
+        val deviceMax = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        if (deviceMax <= 0) return
+        val target = ((remoteValue.toDouble() / remoteMax) * deviceMax).roundToInt().coerceIn(0, deviceMax)
+        if (target == manager.getStreamVolume(AudioManager.STREAM_MUSIC)) return
+        lastUiPushAtMs = SystemClock.elapsedRealtime()
+        try {
+            manager.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
+        } catch (_: SecurityException) {
+            // Some OEMs restrict STREAM_MUSIC changes under active Do Not Disturb policies.
+        }
     }
 
     private fun applyToRemote(deviceValue: Int) {
@@ -139,6 +178,7 @@ internal class DeviceVolumeBridge(
 
     private companion object {
         const val DEBOUNCE_MS = 200L
+        const val SUPPRESS_UI_ECHO_MS = 1000L
         const val CONVERGED_THRESHOLD = 0.02f
         const val LOCAL_OVERRIDE_TIMEOUT_MS = 3000L
 
