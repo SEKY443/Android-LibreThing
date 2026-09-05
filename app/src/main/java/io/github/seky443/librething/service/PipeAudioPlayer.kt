@@ -85,11 +85,17 @@ class PipeAudioPlayer(
                     .setEncoding(ENCODING)
                     .build()
             )
-            // 2x rather than 4x the platform minimum: daemon-side volume changes are baked
-            // into PCM before it ever reaches this buffer (see driver-pipe.go), so whatever
-            // is already sitting in here plays out at the old volume -- a smaller buffer
-            // trades some underrun margin for a shorter worst-case volume-change delay.
-            .setBufferSizeInBytes(minBufferBytes * 2)
+            // Back to 4x the platform minimum (was briefly trimmed to 2x for a shorter
+            // worst-case volume-change delay -- daemon-side volume changes are baked into PCM
+            // before it ever reaches this buffer, per driver-pipe.go, so whatever's already
+            // sitting in here plays out at the old volume). 2x left only ~20-50ms of margin on
+            // a typical device's platform minimum, which is well within range of an ordinary
+            // scheduling hiccup (GC pause, a momentary CPU stall while the daemon's reader
+            // thread is busy) -- and a Bluetooth speaker underrunning is a real, known trigger
+            // for its own firmware to treat the stream as inactive and drop the A2DP connection,
+            // which reads to the user as an unprompted disconnect/reconnect. A slower
+            // volume-change response is a far smaller cost than that.
+            .setBufferSizeInBytes(minBufferBytes * 4)
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
 

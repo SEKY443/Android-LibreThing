@@ -68,6 +68,10 @@ object SpotifyConnectServiceState {
      * to anyway. */
     @Volatile internal var localVolumeSync: ((value: Int, max: Int) -> Unit)? = null
 
+    /** Set by [SpotifyConnectService] while it's running; lets [appendLog] persist every entry
+     * to [DaemonLogFile] without this object needing a [android.content.Context] of its own. */
+    @Volatile internal var persistentLogSink: ((LogEntry) -> Unit)? = null
+
     internal fun attach(client: GoLibrespotApiClient?) {
         apiClient = client
         _isServiceRunning.value = client != null
@@ -99,6 +103,7 @@ object SpotifyConnectServiceState {
     }
 
     internal fun appendLog(entry: LogEntry) {
+        persistentLogSink?.invoke(entry)
         _logs.update { current ->
             val next = current + entry
             if (next.size > MAX_LOG_LINES) next.subList(next.size - MAX_LOG_LINES, next.size) else next

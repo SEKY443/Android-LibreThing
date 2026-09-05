@@ -31,6 +31,16 @@ object GoLibrespotPaths {
 
     fun audioPipe(context: Context): File = File(configDir(context), "audio.pipe")
 
+    /** Rotating on-disk mirror of [io.github.seky443.librething.service.SpotifyConnectServiceState]'s
+     * log flow -- see [io.github.seky443.librething.service.DaemonLogFile]. Survives across
+     * restarts and process death, unlike that in-memory flow or logcat's own ring buffer, so an
+     * intermittent crash or hang days apart is still diagnosable after the fact. */
+    fun logFile(context: Context): File = File(configDir(context), "daemon.log")
+
+    /** One rotated-out backup of [logFile], kept so a crash that happens right after rotation
+     * isn't lost. */
+    fun previousLogFile(context: Context): File = File(configDir(context), "daemon.log.1")
+
     fun daemonBinary(context: Context): File =
         File(context.applicationInfo.nativeLibraryDir, "libgolibrespot.so")
 }
