@@ -372,21 +372,38 @@ internal fun PlaybackProgressBar(
     onSeek: (Long) -> Unit,
 ) {
     val durationMs = nowPlaying.durationMs.coerceAtLeast(1L)
-    val snapshotAtMs = remember(nowPlaying) { System.currentTimeMillis() }
-    var nowMs by remember(nowPlaying) { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(nowPlaying, isPlaying) {
+
+    // Baseline (a reported position and the wall-clock instant it was reported at) that the
+    // ticker below extrapolates forward from. Reset on a genuine track change (keyed on uri), or
+    // when a freshly reported position disagrees with where that extrapolation already thinks we
+    // are by more than ordinary jitter -- NOT on every metadata/status update, since a Connect
+    // transfer fires several of those within milliseconds of each other, each capturing the same
+    // position at a very slightly different instant. Resetting the baseline on every one of those
+    // (as this used to, keying the whole ticker on nowPlaying's full value) made the bar visibly
+    // jump/stutter right when connecting instead of ticking smoothly through them.
+    var baselinePositionMs by remember(nowPlaying.uri) { mutableLongStateOf(nowPlaying.positionMs) }
+    var baselineAtMs by remember(nowPlaying.uri) { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(nowPlaying.positionMs) {
+        val extrapolatedNow = baselinePositionMs + (System.currentTimeMillis() - baselineAtMs)
+        if (abs(nowPlaying.positionMs - extrapolatedNow) > 1500) {
+            baselinePositionMs = nowPlaying.positionMs
+            baselineAtMs = System.currentTimeMillis()
+        }
+    }
+
+    // Not gated on isPlaying: the loop below already stops updating nowMs the instant isPlaying
+    // goes false, so this naturally freezes at wherever it was rather than needing to be forced
+    // back to 0 -- forcing it to 0 here was the bug, since it snapped the bar back to the stale
+    // pre-tick anchor on every pause.
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(isPlaying) {
         if (!isPlaying) return@LaunchedEffect
         while (true) {
             delay(500)
             nowMs = System.currentTimeMillis()
         }
     }
-    // Not gated on isPlaying: nowMs's own ticker loop already stops updating the instant
-    // isPlaying goes false (see the LaunchedEffect above), so this naturally freezes at
-    // wherever it was rather than needing to be forced back to 0 -- forcing it to 0 here was
-    // the bug, since it snapped the bar back to the stale pre-tick anchor on every pause.
-    val elapsedSincePlaybackSnapshotMs = (nowMs - snapshotAtMs).coerceAtLeast(0)
-    val tickedPositionMs = (nowPlaying.positionMs + elapsedSincePlaybackSnapshotMs).coerceIn(0, durationMs)
+    val tickedPositionMs = (baselinePositionMs + (nowMs - baselineAtMs)).coerceIn(0, durationMs)
 
     var dragPositionMs by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(tickedPositionMs) {
