@@ -102,7 +102,6 @@ class SpotifyConnectService : LifecycleService() {
     private var mediaSession: MediaSession? = null
     private var player: GoLibrespotPlayer? = null
     private var volumeBridge: DeviceVolumeBridge? = null
-    private var daemonLogFile: DaemonLogFile? = null
     private var bluetoothConnectionWatcher: BluetoothConnectionWatcher? = null
 
     override fun onCreate() {
@@ -111,8 +110,6 @@ class SpotifyConnectService : LifecycleService() {
         createNotificationChannel()
         setupMediaSession()
         startForeground(NOTIFICATION_ID, buildNotification(ConnectionState.Starting, null))
-        daemonLogFile = DaemonLogFile(applicationContext).also { SpotifyConnectServiceState.persistentLogSink = it::append }
-        SpotifyConnectServiceState.appendLog(LogEntry(LogLevel.INFO, "=== service starting (pid ${android.os.Process.myPid()}) ==="))
         volumeBridge = DeviceVolumeBridge(applicationContext, lifecycleScope, settingsRepository).also { it.start() }
         bluetoothConnectionWatcher = BluetoothConnectionWatcher(applicationContext).also { it.start() }
         launchDaemon()
@@ -459,15 +456,12 @@ class SpotifyConnectService : LifecycleService() {
     }
 
     override fun onDestroy() {
-        SpotifyConnectServiceState.appendLog(LogEntry(LogLevel.INFO, "=== service stopping ==="))
         teardownDaemon()
         SpotifyConnectServiceState.attach(null)
         volumeBridge?.stop()
         bluetoothConnectionWatcher?.stop()
         mediaSession?.let { it.player.release(); it.release() }
         wakeLock?.let { if (it.isHeld) it.release() }
-        SpotifyConnectServiceState.persistentLogSink = null
-        daemonLogFile?.close()
         // lifecycleScope is already cancelled by this point (tied to the same ON_DESTROY event
         // this override runs on); a standalone scope is the only way left to persist this.
         @OptIn(DelicateCoroutinesApi::class)

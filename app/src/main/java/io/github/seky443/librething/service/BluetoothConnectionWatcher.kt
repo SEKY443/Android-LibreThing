@@ -11,12 +11,10 @@ import io.github.seky443.librething.service.model.LogEntry
 import io.github.seky443.librething.service.model.LogLevel
 
 /**
- * Logs A2DP profile connection-state changes into [SpotifyConnectServiceState]'s log flow (and
- * from there into [DaemonLogFile]) purely for diagnosing a Bluetooth speaker dropping and
- * immediately reconnecting -- the daemon's own log has no visibility into this at all, since
- * Bluetooth audio routing happens entirely on the Android side (see [PipeAudioPlayer]), and
- * neither logcat's ring buffer nor the in-memory log flow survive long enough to catch a blip
- * that only happens once every few days.
+ * Logs A2DP profile connection-state changes into [SpotifyConnectServiceState]'s log flow, so
+ * the Dashboard's log console shows them alongside the daemon's own output -- the daemon has no
+ * visibility into Bluetooth at all, since audio routing happens entirely on the Android side
+ * (see [PipeAudioPlayer]).
  *
  * Deliberately only reads the connection-state int extras, not the [android.bluetooth.BluetoothDevice]
  * itself (name/address) -- that needs `BLUETOOTH_CONNECT` on API 31+, a runtime permission this
