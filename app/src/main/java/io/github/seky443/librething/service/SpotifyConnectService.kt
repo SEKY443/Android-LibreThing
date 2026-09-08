@@ -95,6 +95,7 @@ class SpotifyConnectService : LifecycleService() {
     private val authUrlOpened = AtomicBoolean(false)
     private var restartAttempts = 0
     private var healthCheckJob: kotlinx.coroutines.Job? = null
+    private var serviceEventLog: ServiceEventLog? = null
 
     // Backs hardware/Bluetooth media-button routing (play/pause/next/previous) into the same
     // GoLibrespotApiClient calls the Dashboard UI uses, and lets a paired speaker's own volume
@@ -110,6 +111,8 @@ class SpotifyConnectService : LifecycleService() {
         createNotificationChannel()
         setupMediaSession()
         startForeground(NOTIFICATION_ID, buildNotification(ConnectionState.Starting, null))
+        serviceEventLog = ServiceEventLog(applicationContext)
+            .also { it.append("service starting (pid ${android.os.Process.myPid()})") }
         volumeBridge = DeviceVolumeBridge(applicationContext, lifecycleScope, settingsRepository).also { it.start() }
         bluetoothConnectionWatcher = BluetoothConnectionWatcher(applicationContext).also { it.start() }
         launchDaemon()
@@ -208,6 +211,7 @@ class SpotifyConnectService : LifecycleService() {
                 }
                 consecutiveFailures++
                 if (consecutiveFailures < HEALTH_CHECK_FAILURE_THRESHOLD) continue
+                serviceEventLog?.append("health check: $HEALTH_CHECK_FAILURE_THRESHOLD consecutive failures, forcing a restart")
                 SpotifyConnectServiceState.appendLog(
                     LogEntry(
                         LogLevel.ERROR,
@@ -318,6 +322,7 @@ class SpotifyConnectService : LifecycleService() {
     private fun handleProcessExit(exitCode: Int) {
         // Always log this, including a clean exit (0): the daemon exiting at all while the
         // service is still meant to be running is unexpected and otherwise silent.
+        serviceEventLog?.append("go-librespot process exited (code $exitCode)")
         SpotifyConnectServiceState.appendLog(LogEntry(LogLevel.INFO, "go-librespot process exited (code $exitCode)"))
         SpotifyConnectServiceState.setDeviceAuthPrompt(null)
         if (exitCode == 0) {
@@ -340,6 +345,15 @@ class SpotifyConnectService : LifecycleService() {
         lifecycleScope.launch(Dispatchers.IO) {
             val autoRestartEnabled = settingsRepository.appPreferences.first().autoRestartOnCrashEnabled
             if (!autoRestartEnabled || restartAttempts >= MAX_CONSECUTIVE_RESTART_ATTEMPTS) {
+                // Logged either way now -- this used to be silent when autoRestartEnabled was
+                // false, which looked identical to the service just hanging with no explanation
+                // at all once the in-memory log had scrolled past it.
+                val reason = if (autoRestartEnabled) {
+                    "after $restartAttempts consecutive failures"
+                } else {
+                    "auto-restart is disabled"
+                }
+                serviceEventLog?.append("giving up on auto-restart ($reason), stopping service")
                 if (autoRestartEnabled) {
                     SpotifyConnectServiceState.appendLog(
                         LogEntry(LogLevel.ERROR, "Giving up auto-restart after $restartAttempts consecutive failures")
@@ -350,6 +364,7 @@ class SpotifyConnectService : LifecycleService() {
             }
 
             restartAttempts++
+            serviceEventLog?.append("restarting go-librespot (attempt $restartAttempts/$MAX_CONSECUTIVE_RESTART_ATTEMPTS)")
             SpotifyConnectServiceState.appendLog(
                 LogEntry(LogLevel.WARN, "Restarting go-librespot automatically (attempt $restartAttempts/$MAX_CONSECUTIVE_RESTART_ATTEMPTS)")
             )
@@ -456,12 +471,14 @@ class SpotifyConnectService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        serviceEventLog?.append("service stopping")
         teardownDaemon()
         SpotifyConnectServiceState.attach(null)
         volumeBridge?.stop()
         bluetoothConnectionWatcher?.stop()
         mediaSession?.let { it.player.release(); it.release() }
         wakeLock?.let { if (it.isHeld) it.release() }
+        serviceEventLog?.close()
         // lifecycleScope is already cancelled by this point (tied to the same ON_DESTROY event
         // this override runs on); a standalone scope is the only way left to persist this.
         @OptIn(DelicateCoroutinesApi::class)

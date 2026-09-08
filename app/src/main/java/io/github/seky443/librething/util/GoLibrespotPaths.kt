@@ -31,6 +31,10 @@ object GoLibrespotPaths {
 
     fun audioPipe(context: Context): File = File(configDir(context), "audio.pipe")
 
+    /** Tiny rotating log of just [io.github.seky443.librething.service.SpotifyConnectService]'s
+     * own lifecycle/restart events -- see [io.github.seky443.librething.service.ServiceEventLog]. */
+    fun serviceEventLogFile(context: Context): File = File(configDir(context), "service-events.log")
+
     fun daemonBinary(context: Context): File =
         File(context.applicationInfo.nativeLibraryDir, "libgolibrespot.so")
 }
