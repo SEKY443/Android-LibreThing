@@ -68,7 +68,14 @@ class SpotifyConnectService : LifecycleService() {
         // status (see pollStatusUntilReady), so a daemon that runs fine for days before one
         // real crash still gets a full fresh budget of retries.
         private const val MAX_CONSECUTIVE_RESTART_ATTEMPTS = 5
-        private const val RESTART_DELAY_MILLIS = 2000L
+
+        // Must safely outlast GoProcessController.stop()'s own worst case: a process that
+        // ignores SIGTERM gets a 3-second grace period there before SIGKILL. A shorter delay
+        // here (2s, previously) let launchDaemon() spawn a new process and try to bind the API
+        // port while the old one -- SIGTERM'd but not yet reaped -- was still holding it,
+        // observed on-device as an immediate bind failure/exit on every single restart attempt
+        // in a row until the retry budget ran out and the whole service gave up.
+        private const val RESTART_DELAY_MILLIS = 4000L
 
         // A hung-but-still-alive daemon (a goroutine deadlock rather than a crash -- see the
         // two channel-send races already found and fixed in dealer/recv.go and
@@ -319,17 +326,20 @@ class SpotifyConnectService : LifecycleService() {
         }
     }
 
+    /**
+     * [GoProcessController] never calls this for a stop *it* was asked to perform (see its
+     * `stopRequested` flag) -- so by the time this runs, the daemon exiting was never requested
+     * by anything in this service, no matter what the exit code says. A clean exit (0) used to
+     * be special-cased as "the daemon quit on its own for a good reason, stop the whole service
+     * too", but that's exactly what a health-check-triggered restart's own teardown looked like
+     * before that flag existed (`destroy()` sends SIGTERM, which go-librespot handles by exiting
+     * with code 0) -- it isn't a real distinction to make here, since restarting is the right
+     * response to *any* exit this service didn't ask for, code 0 included.
+     */
     private fun handleProcessExit(exitCode: Int) {
-        // Always log this, including a clean exit (0): the daemon exiting at all while the
-        // service is still meant to be running is unexpected and otherwise silent.
         serviceEventLog?.append("go-librespot process exited (code $exitCode)")
         SpotifyConnectServiceState.appendLog(LogEntry(LogLevel.INFO, "go-librespot process exited (code $exitCode)"))
         SpotifyConnectServiceState.setDeviceAuthPrompt(null)
-        if (exitCode == 0) {
-            stopSelf()
-            return
-        }
-
         SpotifyConnectServiceState.setConnectionState(ConnectionState.Error("go-librespot exited (code $exitCode)"))
         scheduleRestart()
     }
