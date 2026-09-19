@@ -1,3 +1,6 @@
+## This app currently fulfills all of my personal requirements and is running smoothly with no known major bugs. As a result, active development is on hold, and the project is now entering maintenance mode. If you run into any issues or have feature suggestions, feel free to submit an Issue, and I’ll take a look when time permits. Thanks for your support!
+
+
 # Librething
 
 Turn an old Android (**Android 7.0 or newer**) phone or tablet into a **Spotify Connect receiver** — the kind that shows up
