@@ -20,9 +20,9 @@ import androidx.media3.session.MediaStyleNotificationHelper
 import io.github.seky443.librething.MainActivity
 import io.github.seky443.librething.R
 import io.github.seky443.librething.data.AppPreferences
+import io.github.seky443.librething.data.CredentialsType
 import io.github.seky443.librething.data.SettingsRepository
 import io.github.seky443.librething.service.model.ConnectionState
-import io.github.seky443.librething.service.model.DeviceAuthPrompt
 import io.github.seky443.librething.service.model.LogEntry
 import io.github.seky443.librething.service.model.LogLevel
 import io.github.seky443.librething.service.model.PlayerStatus
@@ -54,18 +54,9 @@ class SpotifyConnectService : LifecycleService() {
         const val ACTION_PREVIOUS = "io.github.seky443.librething.action.PREVIOUS"
         private val AUTH_URL_REGEX = Regex("""https://accounts\.spotify\.com/authorize\S*""")
 
-        // Matches session.go's DeviceAuthCredentials log line exactly (see
-        // native/go-librespot-src/session/session.go): "to complete authentication visit
-        // <url> and, if prompted, enter code <code>". Two capture groups, unlike the
-        // interactive flow's single-URL AUTH_URL_REGEX, since the code has to be shown
-        // separately -- it isn't embedded in the URL when Spotify doesn't return a
-        // "complete" verification link.
-        private val DEVICE_AUTH_REGEX =
-            Regex("""to complete authentication visit (\S+) and, if prompted, enter code (\S+)""")
-
         // Caps a crash loop (e.g. a config that makes the daemon fail immediately every time)
         // from restarting forever; the counter resets once a launch actually reaches a ready
-        // status (see pollStatusUntilReady), so a daemon that runs fine for days before one
+        // status (see waitForLogin), so a daemon that runs fine for days before one
         // real crash still gets a full fresh budget of retries.
         private const val MAX_CONSECUTIVE_RESTART_ATTEMPTS = 5
 
@@ -84,7 +75,6 @@ class SpotifyConnectService : LifecycleService() {
         // on this slow cadence once startup succeeds catches that case too.
         private const val HEALTH_CHECK_INTERVAL_MILLIS = 30_000L
         private const val HEALTH_CHECK_FAILURE_THRESHOLD = 3
-
         fun start(context: Context) {
             ContextCompat.startForegroundService(context, Intent(context, SpotifyConnectService::class.java))
         }
@@ -200,19 +190,63 @@ class SpotifyConnectService : LifecycleService() {
             controller.start(config, initialVolumeSteps)
 
             client.connectEvents(lifecycleScope)
-            pollStatusUntilReady(client)
             startHealthCheck(client)
+            waitForLogin(client, watchPairingCode = config.credentialsType == CredentialsType.DEVICE_AUTH)
         }
     }
 
-    /** Started once startup polling succeeds; see [HEALTH_CHECK_INTERVAL_MILLIS]'s kdoc. */
+    /**
+     * Picks up the daemon's initial status once its API answers, and -- for `device_auth` --
+     * keeps surfacing the pairing code from `GET /auth/code` until login actually completes.
+     *
+     * Login can legitimately take minutes (the user approving a pairing code on another device,
+     * or finishing an `interactive` login in a browser). The daemon answers `/status` with 204
+     * throughout (see go-librespot-termux fc71be6), so for `device_auth` a mere answer isn't
+     * "done": this keeps polling until `/status` reports a real session, and clears the prompt
+     * as soon as `/auth/code` stops returning one (approved, or expired). Other credential types
+     * have no code to show, so the first answer of any kind is enough. Ends early if this launch
+     * is torn down or restarted.
+     */
+    private suspend fun waitForLogin(client: GoLibrespotApiClient, watchPairingCode: Boolean) {
+        var attempt = 0
+        while (apiClient === client) {
+            if (watchPairingCode) {
+                val auth = client.getAuthCode()
+                SpotifyConnectServiceState.setDeviceAuthPrompt((auth as? AuthCodeResult.Pending)?.prompt)
+            }
+            when (val result = client.getStatusResult()) {
+                is StatusResult.Active -> {
+                    // Only a real session resets the crash budget, same as before: a daemon that
+                    // answers 204 and then keeps crashing during login must still run out of it.
+                    restartAttempts = 0
+                    SpotifyConnectServiceState.setDeviceAuthPrompt(null)
+                    SpotifyConnectServiceState.setConnectionState(connectionStateFor(result.status))
+                    SpotifyConnectServiceState.setNowPlaying(result.status.track)
+                    SpotifyConnectServiceState.setVolume(result.status.volume, result.status.volumeSteps)
+                    return
+                }
+                // e.g. zeroconf with nobody connected yet: nothing more to wait for here.
+                StatusResult.NoSession -> if (!watchPairingCode) return
+                StatusResult.Unreachable -> Unit
+            }
+            if (attempt == 0) SpotifyConnectServiceState.setConnectionState(ConnectionState.Discoverable)
+            attempt++
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+
+    /** See [HEALTH_CHECK_INTERVAL_MILLIS]'s kdoc. Safe to start right at launch: the daemon
+     * answers `/status` even while login is still in progress (204), so only true silence --
+     * startup never finishing, or the request loop hanging later -- counts as a failure. */
     private fun startHealthCheck(client: GoLibrespotApiClient) {
         healthCheckJob = lifecycleScope.launch(Dispatchers.IO) {
             var consecutiveFailures = 0
             while (true) {
                 kotlinx.coroutines.delay(HEALTH_CHECK_INTERVAL_MILLIS)
-                val reachable = runCatching { client.getStatus() }.getOrNull() != null
-                if (reachable) {
+                // Any answer counts, including 204 "no session" -- zeroconf logs out after every
+                // Connect session, which is idle, not hung. Only silence means the request loop
+                // (or the whole process) is stuck.
+                if (client.getStatusResult() != StatusResult.Unreachable) {
                     consecutiveFailures = 0
                     continue
                 }
@@ -247,23 +281,6 @@ class SpotifyConnectService : LifecycleService() {
         )
     }
 
-    /** The daemon's API server needs a moment to bind after the process starts; poll briefly. */
-    private suspend fun pollStatusUntilReady(client: GoLibrespotApiClient) {
-        repeat(20) { attempt ->
-            val status = client.getStatus()
-            if (status != null) {
-                restartAttempts = 0
-                SpotifyConnectServiceState.setDeviceAuthPrompt(null)
-                SpotifyConnectServiceState.setConnectionState(connectionStateFor(status))
-                SpotifyConnectServiceState.setNowPlaying(status.track)
-                SpotifyConnectServiceState.setVolume(status.volume, status.volumeSteps)
-                return
-            }
-            if (attempt == 0) SpotifyConnectServiceState.setConnectionState(ConnectionState.Discoverable)
-            kotlinx.coroutines.delay(1000)
-        }
-    }
-
     private fun connectionStateFor(status: PlayerStatus): ConnectionState = when {
         status.stopped -> ConnectionState.Discoverable
         status.paused -> ConnectionState.Paused
@@ -278,12 +295,6 @@ class SpotifyConnectService : LifecycleService() {
      */
     private fun handleDaemonLog(entry: LogEntry) {
         SpotifyConnectServiceState.appendLog(entry)
-
-        DEVICE_AUTH_REGEX.find(entry.message)?.let { match ->
-            val (verificationUri, userCode) = match.destructured
-            SpotifyConnectServiceState.setDeviceAuthPrompt(DeviceAuthPrompt(verificationUri, userCode))
-            return
-        }
 
         val url = AUTH_URL_REGEX.find(entry.message)?.value ?: return
         if (!authUrlOpened.compareAndSet(false, true)) return
@@ -393,6 +404,8 @@ class SpotifyConnectService : LifecycleService() {
         healthCheckJob = null
         apiClient?.disconnectEvents()
         apiClient?.shutdown()
+        // Also what ends a still-running waitForLogin loop for this launch.
+        apiClient = null
         processController?.stop()
     }
 

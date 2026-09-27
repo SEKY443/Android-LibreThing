@@ -39,8 +39,8 @@ data class PlayerStatus(
     val track: TrackInfo?,
 )
 
-/** OAuth 2.0 device authorization flow ("device_auth" credentials): the daemon logs this once
- * per login attempt, then blocks waiting for the user to approve on any device using
+/** OAuth 2.0 device authorization flow ("device_auth" credentials): the daemon serves this at
+ * `GET /auth/code` for as long as a login attempt is waiting for the user to approve on any device using
  * [verificationUri] and [userCode] -- unlike interactive login's browser-OAuth callback, that
  * approval doesn't have to happen on this device, so the code has to stay visible/copyable in
  * the app itself rather than just auto-launching a browser. */

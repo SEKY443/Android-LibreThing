@@ -1,5 +1,6 @@
 package io.github.seky443.librething.service
 
+import io.github.seky443.librething.service.model.DeviceAuthPrompt
 import io.github.seky443.librething.service.model.LogEntry
 import io.github.seky443.librething.service.model.LogLevel
 import io.github.seky443.librething.service.model.PlayerStatus
@@ -129,18 +130,53 @@ class GoLibrespotApiClient(
     }
 
     /** Returns null both when there's no active session (204) and when the daemon's API
-     * server isn't up yet -- callers poll this while the process is still starting. */
-    fun getStatus(): PlayerStatus? {
+     * server isn't up yet -- callers poll this while the process is still starting. See
+     * [getStatusResult] to tell those two apart. */
+    fun getStatus(): PlayerStatus? = (getStatusResult() as? StatusResult.Active)?.status
+
+    /**
+     * Unlike [getStatus], distinguishes "the daemon answered, there's just no session" from "the
+     * daemon didn't answer at all". `/status` is routed through the daemon's request loop (which
+     * answers 204 while there's no session, including during login), so no answer within
+     * [OkHttpClient.callTimeoutMillis] means the process is gone or that loop is stuck.
+     */
+    fun getStatusResult(): StatusResult {
         val request = Request.Builder().url("$baseHttpUrl/status").get().build()
         return try {
             httpClient.newCall(request).execute().use { response ->
-                if (response.code == 204 || !response.isSuccessful) return null
-                val body = response.body?.string() ?: return null
-                val dto = runCatching { json.decodeFromString<StatusDto>(body) }.getOrNull() ?: return null
-                dto.toPlayerStatus()
+                if (response.code == 204 || !response.isSuccessful) return StatusResult.NoSession
+                val body = response.body?.string() ?: return StatusResult.NoSession
+                val dto = runCatching { json.decodeFromString<StatusDto>(body) }.getOrNull()
+                    ?: return StatusResult.NoSession
+                StatusResult.Active(dto.toPlayerStatus())
             }
         } catch (e: IOException) {
-            null
+            StatusResult.Unreachable
+        } catch (e: RuntimeException) {
+            // e.g. RejectedExecutionException once shutdown() has run -- same as unreachable.
+            StatusResult.Unreachable
+        }
+    }
+
+    /**
+     * The pairing URL and code of an in-flight `device_auth` login, from the daemon's
+     * `GET /auth/code` -- the supported replacement for scraping them out of its log line.
+     * [AuthCodeResult.None] once the code is approved or has expired.
+     */
+    fun getAuthCode(): AuthCodeResult {
+        val request = Request.Builder().url("$baseHttpUrl/auth/code").get().build()
+        return try {
+            httpClient.newCall(request).execute().use { response ->
+                if (response.code == 204 || !response.isSuccessful) return AuthCodeResult.None
+                val body = response.body?.string() ?: return AuthCodeResult.None
+                val dto = runCatching { json.decodeFromString<DeviceAuthDto>(body) }.getOrNull()
+                    ?: return AuthCodeResult.None
+                AuthCodeResult.Pending(DeviceAuthPrompt(verificationUri = dto.url, userCode = dto.code))
+            }
+        } catch (e: IOException) {
+            AuthCodeResult.Unreachable
+        } catch (e: RuntimeException) {
+            AuthCodeResult.Unreachable
         }
     }
 
@@ -168,6 +204,21 @@ class GoLibrespotApiClient(
         httpClient.connectionPool.evictAll()
     }
 }
+
+sealed interface StatusResult {
+    data class Active(val status: PlayerStatus) : StatusResult
+    data object NoSession : StatusResult
+    data object Unreachable : StatusResult
+}
+
+sealed interface AuthCodeResult {
+    data class Pending(val prompt: DeviceAuthPrompt) : AuthCodeResult
+    data object None : AuthCodeResult
+    data object Unreachable : AuthCodeResult
+}
+
+@Serializable
+private data class DeviceAuthDto(val url: String = "", val code: String = "")
 
 @Serializable
 private data class WsEnvelope(val type: String, val data: JsonElement = JsonNull)
