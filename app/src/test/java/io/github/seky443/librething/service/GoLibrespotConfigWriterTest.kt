@@ -104,4 +104,30 @@ class GoLibrespotConfigWriterTest {
         assertTrue(withInterface.contains("android_net_ip: \"10.0.2.16\""))
         assertTrue(withInterface.contains("android_net_prefix_len: 24"))
     }
+
+    @Test
+    fun `accesspoint ports are written as a plain integer list, and omitted when empty`() {
+        assertFalse(render(GoLibrespotConfig()).contains("accesspoint_ports"))
+
+        val yaml = render(GoLibrespotConfig(accesspointPorts = listOf(80, 443)))
+        assertTrue(yaml.contains("accesspoint_ports: [80, 443]"))
+    }
+
+    @Test
+    fun `port text is validated before it can reach the config file`() {
+        // Whatever is typed, only distinct whole numbers in 1..65535 survive -- nothing else may
+        // ever be interpolated into the daemon's YAML.
+        assertEquals(listOf(80, 443), GoLibrespotConfig.parsePorts("80, 443"))
+        assertEquals(listOf(80, 443), GoLibrespotConfig.parsePorts(" 80;443 80 "))
+        assertEquals(listOf(80), GoLibrespotConfig.parsePorts("80, 0, 65536, -1, abc, 8.5"))
+        assertEquals(emptyList<Int>(), GoLibrespotConfig.parsePorts("443]\nserver: {enabled: false}"))
+        assertEquals(emptyList<Int>(), GoLibrespotConfig.parsePorts(""))
+        assertEquals(GoLibrespotConfig.MAX_ACCESSPOINT_PORTS, GoLibrespotConfig.parsePorts((1..50).joinToString(",")).size)
+    }
+
+    @Test
+    fun `device_is_group follows the setting`() {
+        assertTrue(render(GoLibrespotConfig()).contains("device_is_group: false"))
+        assertTrue(render(GoLibrespotConfig(deviceIsGroup = true)).contains("device_is_group: true"))
+    }
 }

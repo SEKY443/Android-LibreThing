@@ -46,10 +46,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import android.widget.Toast
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.rounded.BroadcastOnHome
@@ -386,6 +388,10 @@ fun SimpleDashboardScreen(
     val context = LocalContext.current
 
     var showConsole by remember { mutableStateOf(false) }
+    var showQueue by remember { mutableStateOf(false) }
+    var showDevices by remember { mutableStateOf(false) }
+    if (showQueue) QueueSheet(viewModel = viewModel, onDismiss = { showQueue = false })
+    if (showDevices) DevicesSheet(viewModel = viewModel, onDismiss = { showDevices = false })
     val track = nowPlaying
     val hasTrack = track != null
     // No cover art exists to toggle to until a track loads, regardless of the toggle itself.
@@ -662,6 +668,8 @@ fun SimpleDashboardScreen(
                         effectiveShowConsole = effectiveShowConsole,
                         onToggleConsole = onToggleConsole,
                         onFakeSleep = onFakeSleep,
+                        onOpenQueue = { showQueue = true },
+                        onOpenDevices = { showDevices = true },
                         onSettingsTap = {
                             haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
                             if (isServiceRunning) viewModel.toggleService() else onOpenSettings()
@@ -737,6 +745,8 @@ fun SimpleDashboardScreen(
                 effectiveShowConsole = effectiveShowConsole,
                 onToggleConsole = onToggleConsole,
                 onFakeSleep = onFakeSleep,
+                onOpenQueue = { showQueue = true },
+                onOpenDevices = { showDevices = true },
                 onSettingsTap = {
                     haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
                     if (isServiceRunning) viewModel.toggleService() else onOpenSettings()
@@ -1246,6 +1256,8 @@ private fun ColumnScope.NowPlayingInfoAndControls(
     effectiveShowConsole: Boolean,
     onToggleConsole: () -> Unit,
     onFakeSleep: () -> Unit,
+    onOpenQueue: () -> Unit,
+    onOpenDevices: () -> Unit,
     onSettingsTap: () -> Unit,
     onSettingsLongPress: () -> Unit,
     onSeek: (Long) -> Unit,
@@ -1372,6 +1384,21 @@ private fun ColumnScope.NowPlayingInfoAndControls(
                         onClick = onToggleConsole,
                     )
                 }
+                // Both need a live session behind them, so they only appear once the server runs;
+                // each opens a sheet over the dashboard rather than another screen.
+                CornerIconButton(
+                    icon = Icons.Filled.QueueMusic,
+                    contentDescription = stringResource(R.string.content_desc_queue),
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    enabled = hasTrack,
+                    onClick = onOpenQueue,
+                )
+                CornerIconButton(
+                    icon = Icons.Filled.Devices,
+                    contentDescription = stringResource(R.string.content_desc_connect_devices),
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    onClick = onOpenDevices,
+                )
                 if (!hideFakeSleepButtonEnabled) {
                     CornerIconButton(
                         icon = Icons.Filled.Bedtime,

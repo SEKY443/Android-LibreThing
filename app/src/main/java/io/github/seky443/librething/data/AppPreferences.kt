@@ -42,6 +42,9 @@ data class AppPreferences(
     val autoCheckForUpdatesEnabled: Boolean = true,
     val autoClearCacheEnabled: Boolean = false,
     val autoClearCacheMaxSizeMb: Int = 500,
+    /** Previous always goes to the previous track instead of first rewinding a track that's played
+     * past a few seconds (sends `allow_seeking: false` to the daemon's `POST /player/prev`). */
+    val previousAlwaysSkips: Boolean = false,
 )
 
 enum class ThemeMode(val wireValue: String, @param:StringRes val labelRes: Int) {

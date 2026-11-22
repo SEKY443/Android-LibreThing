@@ -64,8 +64,26 @@ data class GoLibrespotConfig(
     val spotifyTokenUsername: String = "",
     val spotifyTokenAccessToken: String = "",
     val optimisticPlaybackReplies: Boolean = false,
+    /** Shows this device as a speaker group in Spotify's device picker (`device_is_group`). */
+    val deviceIsGroup: Boolean = false,
+    /** Accesspoint ports to try first, in order (`accesspoint_ports`); empty keeps the daemon's
+     * default order. Kept as parsed numbers -- see [parsePorts] for what's accepted. */
+    val accesspointPorts: List<Int> = emptyList(),
 ) {
     companion object {
         val BITRATE_OPTIONS = listOf(96, 160, 320)
+        const val MAX_ACCESSPOINT_PORTS = 8
+
+        /** Parses a user-typed list such as "80, 443": splits on commas/whitespace, and drops
+         * anything that isn't a whole number in 1..65535 (and repeats) rather than failing the
+         * whole entry -- the result goes straight into the daemon's YAML config, so only plain
+         * validated integers may ever reach it. */
+        fun parsePorts(text: String): List<Int> = text.split(',', ' ', ';', '\n', '\t')
+            .mapNotNull { it.trim().toIntOrNull() }
+            .filter { it in 1..65535 }
+            .distinct()
+            .take(MAX_ACCESSPOINT_PORTS)
+
+        fun formatPorts(ports: List<Int>): String = ports.joinToString(", ")
     }
 }

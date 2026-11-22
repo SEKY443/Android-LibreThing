@@ -1,6 +1,8 @@
 package io.github.seky443.librething.service
 
+import io.github.seky443.librething.service.model.ConnectDevices
 import io.github.seky443.librething.service.model.ConnectionState
+import io.github.seky443.librething.service.model.PlayQueue
 import io.github.seky443.librething.service.model.DeviceAuthPrompt
 import io.github.seky443.librething.service.model.LogEntry
 import io.github.seky443.librething.service.model.TrackInfo
@@ -43,6 +45,29 @@ object SpotifyConnectServiceState {
         _localDeviceVolumeFraction.value = fraction
     }
 
+    private val _queue = MutableStateFlow<PlayQueue?>(null)
+
+    /** The play order, kept current only while something is watching it (see [queueObserved]);
+     * null until first fetched, and again whenever the daemon goes away. */
+    val queue: StateFlow<PlayQueue?> = _queue.asStateFlow()
+
+    /** True while the queue sheet is open: the daemon raises a `queue` event on every change to
+     * the play order, and re-fetching it when nobody's looking would be wasted work. */
+    @Volatile internal var queueObserved = false
+
+    internal fun setQueue(queue: PlayQueue?) {
+        _queue.value = queue
+    }
+
+    private val _connectDevices = MutableStateFlow<ConnectDevices?>(null)
+
+    /** The account's Connect cluster as last reported by the daemon, null while unknown. */
+    val connectDevices: StateFlow<ConnectDevices?> = _connectDevices.asStateFlow()
+
+    internal fun setConnectDevices(devices: ConnectDevices?) {
+        _connectDevices.value = devices
+    }
+
     private val _logs = MutableStateFlow<List<LogEntry>>(emptyList())
     val logs: StateFlow<List<LogEntry>> = _logs.asStateFlow()
 
@@ -75,6 +100,8 @@ object SpotifyConnectServiceState {
             _connectionState.value = ConnectionState.Idle
             _nowPlaying.value = null
             _deviceAuthPrompt.value = null
+            _queue.value = null
+            _connectDevices.value = null
         }
     }
 
@@ -117,7 +144,11 @@ object SpotifyConnectServiceState {
     fun resume() = apiClient?.resume()
     fun pause() = apiClient?.pause()
     fun next() = apiClient?.next()
-    fun previous() = apiClient?.previous()
+    /** Whether Previous may rewind a track that's played for a few seconds instead of always going
+     * back a track; kept in sync with the "Previous always skips back" setting by the service. */
+    @Volatile internal var previousAllowsSeeking = true
+
+    fun previous() = apiClient?.previous(allowSeeking = previousAllowsSeeking)
     fun setVolumeCommand(value: Int) = apiClient?.setVolume(value)
 
     /**
@@ -138,4 +169,11 @@ object SpotifyConnectServiceState {
     }
 
     fun seek(positionMs: Long) = apiClient?.seek(positionMs)
+
+    // Blocking like the rest of these -- call off the main thread.
+    fun fetchQueue(): PlayQueue? = apiClient?.getQueue()
+    fun fetchConnectDevices(): ConnectDevices? = apiClient?.getConnectDevices()
+    fun transferTo(deviceId: String, paused: Boolean = false): Boolean = apiClient?.connectTransfer(deviceId, paused) ?: false
+    fun commandDevice(deviceId: String, endpoint: String): Boolean = apiClient?.connectCommand(deviceId, endpoint) ?: false
+    fun setDeviceVolume(deviceId: String, volume: Int): Boolean = apiClient?.connectSetVolume(deviceId, volume) ?: false
 }

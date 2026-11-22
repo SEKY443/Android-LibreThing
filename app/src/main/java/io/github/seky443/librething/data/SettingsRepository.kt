@@ -30,6 +30,8 @@ class SettingsRepository(private val context: Context) {
         val SPOTIFY_TOKEN_USERNAME = stringPreferencesKey("spotify_token_username")
         val SPOTIFY_TOKEN_ACCESS_TOKEN = stringPreferencesKey("spotify_token_access_token")
         val OPTIMISTIC_PLAYBACK_REPLIES = booleanPreferencesKey("optimistic_playback_replies")
+        val DEVICE_IS_GROUP = booleanPreferencesKey("device_is_group")
+        val ACCESSPOINT_PORTS = stringPreferencesKey("accesspoint_ports")
 
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
         val HOLD_WAKE_LOCK = booleanPreferencesKey("hold_wake_lock")
@@ -68,6 +70,7 @@ class SettingsRepository(private val context: Context) {
         val AUTO_CHECK_FOR_UPDATES_ENABLED = booleanPreferencesKey("auto_check_for_updates_enabled")
         val AUTO_CLEAR_CACHE_ENABLED = booleanPreferencesKey("auto_clear_cache_enabled")
         val AUTO_CLEAR_CACHE_MAX_SIZE_MB = intPreferencesKey("auto_clear_cache_max_size_mb")
+        val PREVIOUS_ALWAYS_SKIPS = booleanPreferencesKey("previous_always_skips")
         val LAST_VOLUME_FRACTION = floatPreferencesKey("last_volume_fraction")
         val LAST_SESSION_END_AT_MILLIS = longPreferencesKey("last_session_end_at_millis")
         val LAST_DISMISSED_UPDATE_VERSION = stringPreferencesKey("last_dismissed_update_version")
@@ -132,6 +135,8 @@ class SettingsRepository(private val context: Context) {
             spotifyTokenUsername = prefs[Keys.SPOTIFY_TOKEN_USERNAME] ?: defaults.spotifyTokenUsername,
             spotifyTokenAccessToken = prefs[Keys.SPOTIFY_TOKEN_ACCESS_TOKEN] ?: defaults.spotifyTokenAccessToken,
             optimisticPlaybackReplies = prefs[Keys.OPTIMISTIC_PLAYBACK_REPLIES] ?: defaults.optimisticPlaybackReplies,
+            deviceIsGroup = prefs[Keys.DEVICE_IS_GROUP] ?: defaults.deviceIsGroup,
+            accesspointPorts = prefs[Keys.ACCESSPOINT_PORTS]?.let { GoLibrespotConfig.parsePorts(it) } ?: defaults.accesspointPorts,
         )
     }
 
@@ -175,6 +180,7 @@ class SettingsRepository(private val context: Context) {
             autoCheckForUpdatesEnabled = prefs[Keys.AUTO_CHECK_FOR_UPDATES_ENABLED] ?: defaults.autoCheckForUpdatesEnabled,
             autoClearCacheEnabled = prefs[Keys.AUTO_CLEAR_CACHE_ENABLED] ?: defaults.autoClearCacheEnabled,
             autoClearCacheMaxSizeMb = prefs[Keys.AUTO_CLEAR_CACHE_MAX_SIZE_MB] ?: defaults.autoClearCacheMaxSizeMb,
+            previousAlwaysSkips = prefs[Keys.PREVIOUS_ALWAYS_SKIPS] ?: defaults.previousAlwaysSkips,
         )
     }
 
@@ -194,6 +200,8 @@ class SettingsRepository(private val context: Context) {
                 spotifyTokenUsername = prefs[Keys.SPOTIFY_TOKEN_USERNAME] ?: GoLibrespotConfig().spotifyTokenUsername,
                 spotifyTokenAccessToken = prefs[Keys.SPOTIFY_TOKEN_ACCESS_TOKEN] ?: GoLibrespotConfig().spotifyTokenAccessToken,
                 optimisticPlaybackReplies = prefs[Keys.OPTIMISTIC_PLAYBACK_REPLIES] ?: GoLibrespotConfig().optimisticPlaybackReplies,
+                deviceIsGroup = prefs[Keys.DEVICE_IS_GROUP] ?: GoLibrespotConfig().deviceIsGroup,
+                accesspointPorts = prefs[Keys.ACCESSPOINT_PORTS]?.let { GoLibrespotConfig.parsePorts(it) } ?: GoLibrespotConfig().accesspointPorts,
             )
             val updated = transform(existing)
             prefs[Keys.DEVICE_NAME] = updated.deviceName
@@ -209,6 +217,8 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.SPOTIFY_TOKEN_USERNAME] = updated.spotifyTokenUsername
             prefs[Keys.SPOTIFY_TOKEN_ACCESS_TOKEN] = updated.spotifyTokenAccessToken
             prefs[Keys.OPTIMISTIC_PLAYBACK_REPLIES] = updated.optimisticPlaybackReplies
+            prefs[Keys.DEVICE_IS_GROUP] = updated.deviceIsGroup
+            prefs[Keys.ACCESSPOINT_PORTS] = GoLibrespotConfig.formatPorts(updated.accesspointPorts)
         }
     }
 
@@ -252,6 +262,7 @@ class SettingsRepository(private val context: Context) {
                 autoCheckForUpdatesEnabled = prefs[Keys.AUTO_CHECK_FOR_UPDATES_ENABLED] ?: AppPreferences().autoCheckForUpdatesEnabled,
                 autoClearCacheEnabled = prefs[Keys.AUTO_CLEAR_CACHE_ENABLED] ?: AppPreferences().autoClearCacheEnabled,
                 autoClearCacheMaxSizeMb = prefs[Keys.AUTO_CLEAR_CACHE_MAX_SIZE_MB] ?: AppPreferences().autoClearCacheMaxSizeMb,
+                previousAlwaysSkips = prefs[Keys.PREVIOUS_ALWAYS_SKIPS] ?: AppPreferences().previousAlwaysSkips,
             )
             val updated = transform(existing)
             prefs[Keys.KEEP_SCREEN_ON] = updated.keepScreenOn
@@ -291,6 +302,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.AUTO_CHECK_FOR_UPDATES_ENABLED] = updated.autoCheckForUpdatesEnabled
             prefs[Keys.AUTO_CLEAR_CACHE_ENABLED] = updated.autoClearCacheEnabled
             prefs[Keys.AUTO_CLEAR_CACHE_MAX_SIZE_MB] = updated.autoClearCacheMaxSizeMb
+            prefs[Keys.PREVIOUS_ALWAYS_SKIPS] = updated.previousAlwaysSkips
         }
     }
 }

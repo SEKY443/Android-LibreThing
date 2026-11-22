@@ -1,6 +1,10 @@
 package io.github.seky443.librething.service
 
+import io.github.seky443.librething.service.model.ConnectDevice
+import io.github.seky443.librething.service.model.ConnectDevices
 import io.github.seky443.librething.service.model.DeviceAuthPrompt
+import io.github.seky443.librething.service.model.PlayQueue
+import io.github.seky443.librething.service.model.QueueEntry
 import io.github.seky443.librething.service.model.LogEntry
 import io.github.seky443.librething.service.model.LogLevel
 import io.github.seky443.librething.service.model.PlayerStatus
@@ -13,6 +17,9 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.serialization.json.decodeFromJsonElement
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -36,6 +43,12 @@ sealed interface PlayerEvent {
     data object Stopped : PlayerEvent
     data class Volume(val value: Int, val max: Int) : PlayerEvent
     data class Seek(val positionMs: Long, val durationMs: Long) : PlayerEvent
+
+    /** The play order changed -- carries no data, re-fetch with [GoLibrespotApiClient.getQueue]. */
+    data object QueueChanged : PlayerEvent
+
+    /** The account's Connect cluster changed; carries the new device list. */
+    data class Cluster(val devices: ConnectDevices) : PlayerEvent
 }
 
 /**
@@ -124,6 +137,10 @@ class GoLibrespotApiClient(
                 val dto = json.decodeFromJsonElement<SeekDto>(envelope.data)
                 PlayerEvent.Seek(dto.position, dto.duration)
             }.getOrNull()
+            "queue" -> PlayerEvent.QueueChanged
+            "cluster" -> runCatching {
+                PlayerEvent.Cluster(json.decodeFromJsonElement<ConnectDevicesDto>(envelope.data).toModel())
+            }.getOrNull()
             else -> null
         } ?: return
         onEvent(event)
@@ -180,21 +197,103 @@ class GoLibrespotApiClient(
         }
     }
 
+    /**
+     * The daemon's current play order, or null if it couldn't be read. A 204 (no session) is an
+     * empty order, not a failure, same as the daemon documents it.
+     */
+    fun getQueue(): PlayQueue? {
+        val request = Request.Builder().url("$baseHttpUrl/player/queue").get().build()
+        return try {
+            httpClient.newCall(request).execute().use { response ->
+                if (response.code == 204) return PlayQueue()
+                if (!response.isSuccessful) return null
+                val body = response.body?.string() ?: return null
+                runCatching { json.decodeFromString<QueueDto>(body).toModel() }.getOrNull()
+            }
+        } catch (e: IOException) {
+            null
+        } catch (e: RuntimeException) {
+            null
+        }
+    }
+
+    /** The Connect cluster's devices, or null when there's no session/cluster yet (204/404) or the
+     * daemon couldn't be reached. */
+    fun getConnectDevices(): ConnectDevices? {
+        val request = Request.Builder().url("$baseHttpUrl/connect/devices").get().build()
+        return try {
+            httpClient.newCall(request).execute().use { response ->
+                if (response.code == 204 || !response.isSuccessful) return null
+                val body = response.body?.string() ?: return null
+                runCatching { json.decodeFromString<ConnectDevicesDto>(body).toModel() }.getOrNull()
+            }
+        } catch (e: IOException) {
+            null
+        } catch (e: RuntimeException) {
+            null
+        }
+    }
+
+    /** Moves the account's playback to [deviceId]. True when Spotify accepted it. */
+    fun connectTransfer(deviceId: String, paused: Boolean = false): Boolean = postJson(
+        "/connect/transfer",
+        buildJsonObject {
+            put("device_id", deviceId)
+            if (paused) put("paused", true)
+        },
+    ) == 200
+
+    /** Sends a simple transport command ("pause", "resume", "skip_next", "skip_prev") to
+     * another device of the cluster. True when Spotify accepted it. */
+    fun connectCommand(deviceId: String, endpoint: String): Boolean = postJson(
+        "/connect/command",
+        buildJsonObject {
+            put("device_id", deviceId)
+            put("endpoint", endpoint)
+        },
+    ) == 200
+
+    /** Sets another device's volume (0..65535 on the wire). True when Spotify accepted it. */
+    fun connectSetVolume(deviceId: String, volume: Int): Boolean = postJson(
+        "/connect/command",
+        buildJsonObject {
+            put("device_id", deviceId)
+            put("endpoint", "set_volume")
+            put("volume", volume.coerceIn(0, 65535))
+        },
+    ) == 200
+
     fun resume() = post("/player/resume")
     fun pause() = post("/player/pause")
     fun playPause() = post("/player/playpause")
     fun next() = post("/player/next")
-    fun previous() = post("/player/prev")
+
+    /** [allowSeeking] false always goes to the previous track; true (the daemon's default) first
+     * rewinds a track that's been playing for more than a few seconds. */
+    fun previous(allowSeeking: Boolean = true) = if (allowSeeking) {
+        post("/player/prev")
+    } else {
+        post("/player/prev", """{"allow_seeking":false}""")
+    }
     fun setVolume(value: Int) = post("/player/volume", """{"volume":$value}""")
     fun seek(positionMs: Long) = post("/player/seek", """{"position":$positionMs}""")
 
     private fun post(path: String, jsonBody: String? = null) {
+        postForStatus(path, jsonBody)
+    }
+
+    /** JSON built by the serializer rather than string-concatenated, since values like device ids
+     * come from the network. Returns the HTTP status, or null if the call failed outright. */
+    private fun postJson(path: String, body: JsonObject): Int? = postForStatus(path, body.toString())
+
+    private fun postForStatus(path: String, jsonBody: String?): Int? {
         val body = jsonBody?.toRequestBody(JSON_MEDIA_TYPE) ?: emptyJsonBody
         val request = Request.Builder().url("$baseHttpUrl$path").post(body).build()
-        try {
-            httpClient.newCall(request).execute().close()
+        return try {
+            httpClient.newCall(request).execute().use { it.code }
         } catch (e: IOException) {
             onLog(LogEntry(LogLevel.WARN, "API call to $path failed: ${e.message}"))
+            null
         }
     }
 
@@ -215,6 +314,69 @@ sealed interface AuthCodeResult {
     data class Pending(val prompt: DeviceAuthPrompt) : AuthCodeResult
     data object None : AuthCodeResult
     data object Unreachable : AuthCodeResult
+}
+
+@Serializable
+private data class QueueTrackDto(
+    val name: String = "",
+    val artist_names: List<String> = emptyList(),
+)
+
+@Serializable
+private data class QueueEntryDto(
+    val uri: String = "",
+    val provider: String = "",
+    val track: QueueTrackDto? = null,
+) {
+    fun toModel() = QueueEntry(
+        uri = uri,
+        name = track?.name?.takeIf { it.isNotBlank() },
+        artistNames = track?.artist_names ?: emptyList(),
+        provider = provider,
+    )
+}
+
+@Serializable
+private data class QueueDto(
+    val prev_tracks: List<QueueEntryDto> = emptyList(),
+    val track: QueueEntryDto? = null,
+    val next_tracks: List<QueueEntryDto> = emptyList(),
+) {
+    fun toModel() = PlayQueue(
+        previous = prev_tracks.map { it.toModel() },
+        current = track?.toModel(),
+        next = next_tracks.map { it.toModel() },
+    )
+}
+
+@Serializable
+private data class ConnectDeviceDto(
+    val id: String = "",
+    val name: String = "",
+    val type: String = "",
+    val volume: Int = 0,
+    val is_self: Boolean = false,
+    val is_active: Boolean = false,
+    val is_offline: Boolean = false,
+    val can_transfer: Boolean = false,
+)
+
+@Serializable
+private data class ConnectNowPlayingDto(val paused: Boolean = false, val playing: Boolean = false)
+
+@Serializable
+private data class ConnectDevicesDto(
+    val active_device_id: String = "",
+    val devices: List<ConnectDeviceDto> = emptyList(),
+    val now_playing: ConnectNowPlayingDto? = null,
+) {
+    fun toModel() = ConnectDevices(
+        activeDeviceId = active_device_id,
+        isPlaying = now_playing?.let { it.playing && !it.paused } ?: false,
+        devices = devices.filter { it.id.isNotEmpty() }.map {
+            ConnectDevice(it.id, it.name, it.type, it.volume.coerceIn(0, 65535), it.is_self, it.is_active, it.is_offline, it.can_transfer)
+        },
+    )
 }
 
 @Serializable

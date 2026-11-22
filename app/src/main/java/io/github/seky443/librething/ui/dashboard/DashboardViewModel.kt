@@ -9,7 +9,9 @@ import io.github.seky443.librething.GoLibrespotApplication
 import io.github.seky443.librething.data.DashboardBackgroundStyle
 import io.github.seky443.librething.service.SpotifyConnectService
 import io.github.seky443.librething.service.SpotifyConnectServiceState
+import io.github.seky443.librething.service.model.ConnectDevices
 import io.github.seky443.librething.service.model.ConnectionState
+import io.github.seky443.librething.service.model.PlayQueue
 import io.github.seky443.librething.service.model.DeviceAuthPrompt
 import io.github.seky443.librething.service.model.LogEntry
 import io.github.seky443.librething.service.model.TrackInfo
@@ -27,6 +29,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class DashboardViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -65,6 +68,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     val volume: StateFlow<Pair<Int, Int>> = SpotifyConnectServiceState.volume
     val localDeviceVolumeFraction: StateFlow<Float?> = SpotifyConnectServiceState.localDeviceVolumeFraction
     val isServiceRunning: StateFlow<Boolean> = SpotifyConnectServiceState.isServiceRunning
+    val queue: StateFlow<PlayQueue?> = SpotifyConnectServiceState.queue
+    val connectDevices: StateFlow<ConnectDevices?> = SpotifyConnectServiceState.connectDevices
     val logs: StateFlow<List<LogEntry>> = SpotifyConnectServiceState.logs
     val volumeSliderEnabled: StateFlow<Boolean> = settingsRepository.appPreferences
         .map { it.volumeSliderEnabled }
@@ -213,6 +218,36 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
     fun seek(positionMs: Long) = viewModelScope.launch(Dispatchers.IO) { SpotifyConnectServiceState.seek(positionMs) }
     fun clearLogs() = SpotifyConnectServiceState.clearLogs()
+
+    /** The queue sheet is open/closed: while open the service keeps [queue] current as the daemon
+     * reports changes, and an initial fetch fills it right away. */
+    fun setQueueObserved(observed: Boolean) {
+        SpotifyConnectServiceState.queueObserved = observed
+        if (observed) refreshQueue()
+    }
+
+    fun refreshQueue() = viewModelScope.launch(Dispatchers.IO) {
+        SpotifyConnectServiceState.fetchQueue()?.let(SpotifyConnectServiceState::setQueue)
+    }
+
+    fun refreshConnectDevices() = viewModelScope.launch(Dispatchers.IO) {
+        SpotifyConnectServiceState.fetchConnectDevices()?.let(SpotifyConnectServiceState::setConnectDevices)
+    }
+
+    /** [onResult] runs on the main thread with whether Spotify accepted the move. */
+    fun transferTo(deviceId: String, onResult: (Boolean) -> Unit) = viewModelScope.launch {
+        onResult(withContext(Dispatchers.IO) { SpotifyConnectServiceState.transferTo(deviceId) })
+    }
+
+    /** [endpoint] is one of the daemon's simple transport commands: "pause", "resume",
+     * "skip_next", "skip_prev". */
+    fun commandDevice(deviceId: String, endpoint: String, onResult: (Boolean) -> Unit) = viewModelScope.launch {
+        onResult(withContext(Dispatchers.IO) { SpotifyConnectServiceState.commandDevice(deviceId, endpoint) })
+    }
+
+    fun setDeviceVolume(deviceId: String, volume: Int, onResult: (Boolean) -> Unit) = viewModelScope.launch {
+        onResult(withContext(Dispatchers.IO) { SpotifyConnectServiceState.setDeviceVolume(deviceId, volume) })
+    }
 
     /** Shows the black-screen overlay if permitted, otherwise sends the user to grant it. */
     fun fakeSleep() {

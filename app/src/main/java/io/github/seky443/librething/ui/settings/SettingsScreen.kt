@@ -384,6 +384,32 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                 checked = config.optimisticPlaybackReplies,
                 onCheckedChange = { viewModel.updateConfig { c -> c.copy(optimisticPlaybackReplies = it) } },
             )
+            SwitchRow(
+                title = stringResource(R.string.settings_device_is_group_title),
+                subtitle = stringResource(R.string.settings_device_is_group_subtitle),
+                checked = config.deviceIsGroup,
+                onCheckedChange = { viewModel.updateConfig { c -> c.copy(deviceIsGroup = it) } },
+            )
+            // Typed text is kept locally as-is (parsing and re-formatting on every keystroke would
+            // fight the cursor); the config only ever stores the validated port numbers.
+            var portsText by remember { mutableStateOf(GoLibrespotConfig.formatPorts(config.accesspointPorts)) }
+            LaunchedEffect(config.accesspointPorts) {
+                if (GoLibrespotConfig.parsePorts(portsText) != config.accesspointPorts) {
+                    portsText = GoLibrespotConfig.formatPorts(config.accesspointPorts)
+                }
+            }
+            OutlinedTextField(
+                value = portsText,
+                onValueChange = {
+                    portsText = it
+                    viewModel.updateConfig { c -> c.copy(accesspointPorts = GoLibrespotConfig.parsePorts(it)) }
+                },
+                label = { Text(stringResource(R.string.settings_accesspoint_ports_label)) },
+                supportingText = { Text(stringResource(R.string.settings_accesspoint_ports_hint)) },
+                modifier = Modifier.fillMaxWidth().padding(vertical = SettingsRowPadding),
+                singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+            )
         }
 
         SettingsSection(title = stringResource(R.string.settings_section_app_behavior)) {
@@ -414,6 +440,12 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                 subtitle = stringResource(R.string.settings_auto_check_for_updates_subtitle),
                 checked = appPrefs.autoCheckForUpdatesEnabled,
                 onCheckedChange = { viewModel.updateAppPreferences { p -> p.copy(autoCheckForUpdatesEnabled = it) } },
+            )
+            SwitchRow(
+                title = stringResource(R.string.settings_previous_always_skips_title),
+                subtitle = stringResource(R.string.settings_previous_always_skips_subtitle),
+                checked = appPrefs.previousAlwaysSkips,
+                onCheckedChange = { viewModel.updateAppPreferences { p -> p.copy(previousAlwaysSkips = it) } },
             )
             SwitchRow(
                 title = stringResource(R.string.settings_auto_clear_cache_title),

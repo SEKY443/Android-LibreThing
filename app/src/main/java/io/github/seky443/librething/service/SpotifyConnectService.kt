@@ -114,6 +114,11 @@ class SpotifyConnectService : LifecycleService() {
         bluetoothConnectionWatcher = BluetoothConnectionWatcher(applicationContext).also { it.start() }
         launchDaemon()
         observeStateForNotification()
+        lifecycleScope.launch {
+            settingsRepository.appPreferences.collect {
+                SpotifyConnectServiceState.previousAllowsSeeking = !it.previousAlwaysSkips
+            }
+        }
     }
 
     private fun setupMediaSession() {
@@ -318,6 +323,8 @@ class SpotifyConnectService : LifecycleService() {
             PlayerEvent.Active -> refreshConnectionStateFromStatus()
             is PlayerEvent.Volume -> SpotifyConnectServiceState.setVolume(event.value, event.max)
             is PlayerEvent.Seek -> SpotifyConnectServiceState.updatePosition(event.positionMs, event.durationMs)
+            PlayerEvent.QueueChanged -> refreshQueueIfObserved()
+            is PlayerEvent.Cluster -> SpotifyConnectServiceState.setConnectDevices(event.devices)
         }
     }
 
@@ -328,6 +335,14 @@ class SpotifyConnectService : LifecycleService() {
      * other client was actually paused, before a later event corrected it back. Fetch the real
      * status instead of assuming, so nothing audible happens unless go-librespot says it should.
      */
+    private fun refreshQueueIfObserved() {
+        if (!SpotifyConnectServiceState.queueObserved) return
+        val client = apiClient ?: return
+        lifecycleScope.launch(Dispatchers.IO) {
+            client.getQueue()?.let { SpotifyConnectServiceState.setQueue(it) }
+        }
+    }
+
     private fun refreshConnectionStateFromStatus() {
         val client = apiClient ?: return
         lifecycleScope.launch(Dispatchers.IO) {

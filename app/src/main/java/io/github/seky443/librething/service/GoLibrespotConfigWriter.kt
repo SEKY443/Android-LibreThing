@@ -122,6 +122,11 @@ object GoLibrespotConfigWriter {
             // block outbound 4070, the access point's default port; trying 443/80 first has
             // no downside on networks that do allow 4070.
             appendLine("prefer_firewall_friendly_ports: true")
+            // Overrides the line above when set (daemon-side), so a network that intercepts 443
+            // but passes 80 can say so. Ints only -- see GoLibrespotConfig.parsePorts.
+            if (config.accesspointPorts.isNotEmpty()) {
+                appendLine("accesspoint_ports: [${config.accesspointPorts.joinToString(", ")}]")
+            }
             appendLine()
             appendLine("audio_backend: \"pipe\"")
             appendLine("audio_output_pipe: ${quote(pipePath)}")
@@ -157,6 +162,7 @@ object GoLibrespotConfigWriter {
             appendLine("normalisation_pregain: ${config.normalisationPregain}")
             appendLine("disable_autoplay: ${config.disableAutoplay}")
             appendLine("optimistic_playback_replies: ${config.optimisticPlaybackReplies}")
+            appendLine("device_is_group: ${config.deviceIsGroup}")
             appendLine()
             appendLine("zeroconf_enabled: ${config.zeroconfEnabled}")
             appendLine("zeroconf_port: ${config.zeroconfPort}")
