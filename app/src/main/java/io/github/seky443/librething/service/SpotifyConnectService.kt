@@ -214,12 +214,21 @@ class SpotifyConnectService : LifecycleService() {
      */
     private suspend fun waitForLogin(client: GoLibrespotApiClient, watchPairingCode: Boolean) {
         var attempt = 0
+        var announcedReady = false
         while (apiClient === client) {
             if (watchPairingCode) {
                 val auth = client.getAuthCode()
                 SpotifyConnectServiceState.setDeviceAuthPrompt((auth as? AuthCodeResult.Pending)?.prompt)
             }
-            when (val result = client.getStatusResult()) {
+            val result = client.getStatusResult()
+            if (result != StatusResult.Unreachable && !announcedReady) {
+                // The daemon takes volume writes from here on (even with no session, even during
+                // login): hand the phone's current level to it before any daemon volume may flow
+                // back onto the stream -- see DeviceVolumeBridge.
+                announcedReady = true
+                volumeBridge?.onDaemonReady()
+            }
+            when (result) {
                 is StatusResult.Active -> {
                     // Only a real session resets the crash budget, same as before: a daemon that
                     // answers 204 and then keeps crashing during login must still run out of it.
@@ -321,7 +330,10 @@ class SpotifyConnectService : LifecycleService() {
                 SpotifyConnectServiceState.setNowPlaying(null)
             }
             PlayerEvent.Active -> refreshConnectionStateFromStatus()
-            is PlayerEvent.Volume -> SpotifyConnectServiceState.setVolume(event.value, event.max)
+            is PlayerEvent.Volume -> {
+                SpotifyConnectServiceState.setVolume(event.value, event.max)
+                volumeBridge?.onRemoteVolume(event.value, event.max)
+            }
             is PlayerEvent.Seek -> SpotifyConnectServiceState.updatePosition(event.positionMs, event.durationMs)
             PlayerEvent.QueueChanged -> refreshQueueIfObserved()
             is PlayerEvent.Cluster -> SpotifyConnectServiceState.setConnectDevices(event.devices)
@@ -421,6 +433,7 @@ class SpotifyConnectService : LifecycleService() {
         apiClient?.shutdown()
         // Also what ends a still-running waitForLogin loop for this launch.
         apiClient = null
+        volumeBridge?.onDaemonStopped()
         processController?.stop()
     }
 

@@ -4,189 +4,314 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import io.github.seky443.librething.data.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlin.math.abs
-import kotlin.math.roundToInt
 
 /**
- * One-directional bridge from the device's `STREAM_MUSIC` volume to the daemon's reported
- * Spotify Connect volume (0..[io.github.seky443.librething.service.model.PlayerStatus.volumeSteps],
- * reported via [SpotifyConnectServiceState.volume]): a connected Bluetooth speaker's hardware
- * volume controls (routed by Android to `STREAM_MUSIC` via AVRCP) move the in-app volume too.
+ * Keeps the device's `STREAM_MUSIC` volume and the daemon's volume in step *both ways*, so that
+ * the phone's own volume keys, a Bluetooth speaker's buttons (AVRCP absolute volume), this app's
+ * slider and any other Spotify Connect client all move the same single value.
  *
- * Not bidirectional for *remote*-driven changes -- another Spotify Connect client's volume, or
- * the daemon's own echo of a device-originated push, used to be mirrored back onto
- * `STREAM_MUSIC` too, but `STREAM_MUSIC` only has a handful of discrete steps (commonly ~15)
- * against the daemon's own 100, so converting a precise remote value down to the nearest device
- * step and writing it introduced a small but audible correction shortly after every remote-driven
- * change -- and on a Bluetooth speaker, where `STREAM_MUSIC` drives the actual analog gain via
- * AVRCP, that rounding step is a real, physical volume jump, not just an internal recalculation.
- * Dropping that direction trades away a speaker's own volume display/knob position tracking
- * remote-driven changes (it now only moves from its own physical buttons) for eliminating that
- * jump entirely.
+ * That only works because the daemon runs with `external_volume: true` (see
+ * [GoLibrespotConfigWriter]): it no longer scales the audio itself, so `STREAM_MUSIC` is the one
+ * and only gain stage -- before, both scaled the same audio and the two numbers merely resembled
+ * each other. The daemon still reports every volume change a Spotify client makes (as a `volume`
+ * event, fed in through [onRemoteVolume]) and accepts volume writes at any time.
  *
- * [SpotifyConnectServiceState.setVolumeFromUi] (this app's own on-screen slider) is the one
- * exception: it pushes into [applyUiVolumeToDeviceStream] directly, which -- unlike the case
- * above -- isn't a round trip through the daemon, so there's no delay for a jump to be audible
- * in. Doing so still fires this same receiver as an echo, though, so [lastUiPushAtMs] suppresses
- * that one broadcast the same way a device-originated push briefly suppressed the daemon's echo
- * before that mechanism was removed (see this class's git history) -- without it, the echo's own
- * rounding (`STREAM_MUSIC`'s coarse steps quantized back up to the daemon's 100) would bounce a
- * slightly different value back to the daemon on every slider release, drifting it exactly the
- * way mirroring every remote change used to.
+ * Two-way sync is where an earlier version of this class went wrong (the volume drifted by a
+ * rounding step after every change, and snapped back while a key was held), so the rules are:
+ * - everything runs on one worker, one event at a time -- no two callbacks ever interleave;
+ * - "did this really change?" is always answered by [VolumeMath.isInSync] against the *last value
+ *   either side is known to hold* (not a timer), so echoes of our own writes are recognised by
+ *   what they say rather than by when they arrive;
+ * - the broadcast's own value is never trusted -- a late broadcast would describe a state that is
+ *   already gone -- the current stream index is read instead;
+ * - while the user is pressing keys the device is authoritative, and a remote change that arrives
+ *   in that window is parked and reconciled afterwards rather than dropped;
+ * - nothing ever writes `STREAM_MUSIC` from a daemon value until [onDaemonReady] has first pushed
+ *   the phone's *current* level to the daemon, so a stale or zero saved daemon volume can never
+ *   mute the phone or blast it.
  *
- * Device-side changes are debounced: holding a hardware/Bluetooth volume key fires a burst of
- * `STREAM_MUSIC` broadcasts (one per step), and posting straight through -- one blocking HTTP
- * call per step -- was visibly janky. Only the value left after a short quiet period is actually
- * sent.
+ * A change of output (a Bluetooth device connecting, headphones unplugged) changes the effective
+ * index without any volume broadcast, since Android keeps a separate index per output; it's
+ * detected through an [AudioDeviceCallback] and pushed to the daemon the same way.
  *
- * Also persists the daemon's reported volume (as a 0f..1f fraction, portable across whatever
- * `volume_steps` is configured) via [settingsRepository], fed back in as `initial_volume` on the
- * next launch (with `ignore_last_volume: true`, so this is the one source of truth instead of
- * competing with the daemon's own separately-persisted last volume) -- see
- * [GoLibrespotConfigWriter]'s `initial_volume`/`ignore_last_volume` comments.
+ * Also persists the daemon's reported volume as a 0f..1f fraction via [settingsRepository], fed
+ * back in as `initial_volume` on the next launch (a fallback only: [onDaemonReady] overrides it).
  */
 internal class DeviceVolumeBridge(
     private val context: Context,
     private val scope: CoroutineScope,
     private val settingsRepository: SettingsRepository,
 ) {
+    private sealed interface Event {
+        data object DeviceChanged : Event
+        data class Flush(val token: Long) : Event
+        data class RemoteVolume(val remote: Int) : Event
+        data object Reconcile : Event
+        data object OutputChanged : Event
+        data class Bootstrap(val attempt: Int) : Event
+        data object Reset : Event
+    }
+
     private val audioManager = context.getSystemService(AudioManager::class.java)
-    private var remoteObserverJob: Job? = null
-    private var deviceDebounceJob: Job? = null
+    private val events = Channel<Event>(Channel.UNLIMITED)
+    private var workerJob: Job? = null
     private var localOverrideTimeoutJob: Job? = null
     private var receiver: BroadcastReceiver? = null
+    private var deviceCallback: AudioDeviceCallback? = null
 
-    /** Latest STREAM_MUSIC value not yet pushed to the daemon; null means nothing pending. */
-    private val pendingDeviceVolume = MutableStateFlow<Int?>(null)
-
-    /** [SystemClock.elapsedRealtime] of the last [applyUiVolumeToDeviceStream] push; see class
-     * kdoc's note on [SpotifyConnectServiceState.setVolumeFromUi]. */
-    @Volatile private var lastUiPushAtMs = 0L
+    // Everything below is only ever touched from the worker.
+    private var lastKnownRemote: Int? = null
+    private var latestRemote: Int? = null
+    private var bootstrapped = false
+    private var guardUntilMs = 0L
+    private var flushToken = 0L
+    private var reconcileScheduled = false
 
     fun start() {
-        if (audioManager == null) return
+        val manager = audioManager ?: return
+        // A fixed-volume output (some HDMI/TV paths) ignores STREAM_MUSIC entirely; the config
+        // writer runs the daemon with its own scaling in that case, and there's nothing to sync.
+        if (isVolumeFixed(context)) return
 
-        // Off the main thread: AudioManager calls are Binder round-trips.
-        remoteObserverJob = scope.launch(Dispatchers.Default) {
-            SpotifyConnectServiceState.volume.collect { (value, max) ->
-                if (max > 0) {
-                    withContext(Dispatchers.IO) { settingsRepository.setLastVolumeFraction(value.toFloat() / max) }
-                    // The daemon has caught up to what the instant local-feedback override
-                    // already showed (see the receiver below) -- clear it so display reverts
-                    // to the normal, animated daemon-driven value for whatever comes next.
-                    val localFraction = SpotifyConnectServiceState.localDeviceVolumeFraction.value
-                    if (localFraction != null && abs(value.toFloat() / max - localFraction) < CONVERGED_THRESHOLD) {
-                        SpotifyConnectServiceState.setLocalDeviceVolumeFraction(null)
-                    }
-                }
-            }
+        workerJob = scope.launch(Dispatchers.IO) {
+            for (event in events) handle(event)
         }
 
-        deviceDebounceJob = scope.launch(Dispatchers.Default) {
-            pendingDeviceVolume.collectLatest { value ->
-                if (value == null) return@collectLatest
-                delay(DEBOUNCE_MS)
-                withContext(Dispatchers.IO) { applyToRemote(value) }
-            }
-        }
-
-        val filter = IntentFilter(VOLUME_CHANGED_ACTION)
         val streamReceiver = object : BroadcastReceiver() {
             override fun onReceive(receivedContext: Context, intent: Intent) {
                 if (intent.getIntExtra(EXTRA_VOLUME_STREAM_TYPE, -1) != AudioManager.STREAM_MUSIC) return
-                val deviceValue = intent.getIntExtra(EXTRA_VOLUME_STREAM_VALUE, -1)
-                if (deviceValue < 0) return
-                // Our own echo from applyUiVolumeToDeviceStream -- the daemon already has the
-                // exact value the slider was set to, so there's nothing to push back, only
-                // rounding drift to introduce (see class kdoc).
-                if (SystemClock.elapsedRealtime() - lastUiPushAtMs < SUPPRESS_UI_ECHO_MS) return
-                // Instant local feedback: shown right away, well before the debounced push
-                // below (and that push's network round trip to the daemon) ever completes.
-                val deviceMax = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                if (deviceMax > 0) {
-                    SpotifyConnectServiceState.setLocalDeviceVolumeFraction(deviceValue.toFloat() / deviceMax)
-                }
-                // Safety net: if the daemon round trip never converges close enough to clear
-                // it above (e.g. daemon unreachable, or its volume_steps rounds differently),
-                // don't leave the UI stuck showing a stale instant value forever.
-                localOverrideTimeoutJob?.cancel()
-                localOverrideTimeoutJob = scope.launch(Dispatchers.Default) {
-                    delay(LOCAL_OVERRIDE_TIMEOUT_MS)
-                    SpotifyConnectServiceState.setLocalDeviceVolumeFraction(null)
-                }
-                pendingDeviceVolume.value = deviceValue
+                events.trySend(Event.DeviceChanged)
             }
         }
         receiver = streamReceiver
-        ContextCompat.registerReceiver(context, streamReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        ContextCompat.registerReceiver(
+            context, streamReceiver, IntentFilter(VOLUME_CHANGED_ACTION), ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
 
-        SpotifyConnectServiceState.localVolumeSync = ::applyUiVolumeToDeviceStream
+        // Android keeps one volume index per output (speaker, A2DP, wired...), and switching the
+        // output changes the effective index without a volume broadcast.
+        val callback = object : AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) = outputChanged()
+            override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) = outputChanged()
+        }
+        deviceCallback = callback
+        manager.registerAudioDeviceCallback(callback, Handler(Looper.getMainLooper()))
     }
 
     fun stop() {
-        SpotifyConnectServiceState.localVolumeSync = null
-        remoteObserverJob?.cancel()
-        remoteObserverJob = null
-        deviceDebounceJob?.cancel()
-        deviceDebounceJob = null
+        deviceCallback?.let { audioManager?.unregisterAudioDeviceCallback(it) }
+        deviceCallback = null
+        receiver?.let { context.unregisterReceiver(it) }
+        receiver = null
+        workerJob?.cancel()
+        workerJob = null
         localOverrideTimeoutJob?.cancel()
         localOverrideTimeoutJob = null
         SpotifyConnectServiceState.setLocalDeviceVolumeFraction(null)
-        receiver?.let { context.unregisterReceiver(it) }
-        receiver = null
     }
 
-    /** Mirrors an app-originated (in-app slider) volume change onto `STREAM_MUSIC` -- see
-     * [SpotifyConnectServiceState.setVolumeFromUi], the only caller. */
-    private fun applyUiVolumeToDeviceStream(remoteValue: Int, remoteMax: Int) {
+    /** The daemon's API just started answering: push the phone's current level to it before
+     * anything is allowed to flow the other way. Call on every (re)launch. */
+    fun onDaemonReady() {
+        events.trySend(Event.Bootstrap(attempt = 0))
+    }
+
+    /** The daemon process is being torn down; it must be bootstrapped again once it's back. */
+    fun onDaemonStopped() {
+        events.trySend(Event.Reset)
+    }
+
+    /** A `volume` event from the daemon (a Spotify client, this app's slider, or our own write
+     * echoed back). [max] is the daemon's step count. */
+    fun onRemoteVolume(value: Int, max: Int) {
+        if (max <= 0) return
+        val remote = Math.round(value.toDouble() / max * VolumeMath.REMOTE_STEPS).toInt()
+            .coerceIn(0, VolumeMath.REMOTE_STEPS)
+        events.trySend(Event.RemoteVolume(remote))
+    }
+
+    private fun outputChanged() {
+        scope.launch(Dispatchers.Default) {
+            // The new output's index settles a moment after the callback.
+            delay(OUTPUT_SETTLE_MS)
+            events.trySend(Event.OutputChanged)
+        }
+    }
+
+    private suspend fun handle(event: Event) {
+        when (event) {
+            Event.Reset -> bootstrapped = false
+            is Event.Bootstrap -> bootstrap(event.attempt)
+            Event.DeviceChanged -> onDeviceChanged()
+            is Event.Flush -> if (event.token == flushToken) {
+                pushDeviceLevel()
+                scheduleReconcile()
+            }
+            is Event.RemoteVolume -> onRemote(event.remote)
+            Event.Reconcile -> {
+                reconcileScheduled = false
+                if (SystemClock.elapsedRealtime() < guardUntilMs) {
+                    scheduleReconcile()
+                } else {
+                    latestRemote?.let(::applyRemote)
+                }
+            }
+            Event.OutputChanged -> if (bootstrapped) pushDeviceLevel()
+        }
+    }
+
+    private suspend fun bootstrap(attempt: Int) {
+        bootstrapped = false
+        val (index, max) = readStream() ?: return
+        val remote = VolumeMath.deviceToRemote(index, max)
+        if (SpotifyConnectServiceState.setVolumeCommand(remote)) {
+            lastKnownRemote = remote
+            latestRemote = remote
+            bootstrapped = true
+        } else if (attempt < MAX_BOOTSTRAP_ATTEMPTS) {
+            // The API said it was up a moment ago; give it a beat rather than giving up for good.
+            scope.launch(Dispatchers.Default) {
+                delay(BOOTSTRAP_RETRY_MS)
+                events.trySend(Event.Bootstrap(attempt + 1))
+            }
+        }
+    }
+
+    private fun onDeviceChanged() {
+        val (index, max) = readStream() ?: return
+        val known = lastKnownRemote
+        // An echo of a write we made (or a change that doesn't actually move anything).
+        if (known != null && VolumeMath.isInSync(index, known, max)) return
+
+        guardUntilMs = SystemClock.elapsedRealtime() + GUARD_MS
+        // Instant local feedback: shown right away, well before the debounced push below (and its
+        // round trip to the daemon) completes.
+        SpotifyConnectServiceState.setLocalDeviceVolumeFraction(index.toFloat() / max)
+        // Safety net so the UI never stays stuck on this if the daemon never converges on it.
+        localOverrideTimeoutJob?.cancel()
+        localOverrideTimeoutJob = scope.launch(Dispatchers.Default) {
+            delay(LOCAL_OVERRIDE_TIMEOUT_MS)
+            SpotifyConnectServiceState.setLocalDeviceVolumeFraction(null)
+        }
+        // Holding a key fires a burst of broadcasts; only the value left after a quiet period is sent.
+        flushToken++
+        val token = flushToken
+        scope.launch(Dispatchers.Default) {
+            delay(DEBOUNCE_MS)
+            events.trySend(Event.Flush(token))
+        }
+    }
+
+    private fun pushDeviceLevel() {
+        val (index, max) = readStream() ?: return
+        val known = lastKnownRemote
+        if (known != null && VolumeMath.isInSync(index, known, max)) return
+        val remote = VolumeMath.deviceToRemote(index, max)
+        // On failure leave lastKnownRemote alone, so the next change (or output change) retries.
+        if (SpotifyConnectServiceState.setVolumeCommand(remote)) lastKnownRemote = remote
+    }
+
+    private fun onRemote(remote: Int) {
+        lastKnownRemote = remote
+        latestRemote = remote
+        scope.launch(Dispatchers.IO) {
+            settingsRepository.setLastVolumeFraction(remote.toFloat() / VolumeMath.REMOTE_STEPS)
+        }
+        // The daemon has caught up to what the instant local-feedback override already showed --
+        // clear it so display reverts to the normal, animated daemon-driven value.
+        val local = SpotifyConnectServiceState.localDeviceVolumeFraction.value
+        if (local != null && abs(remote.toFloat() / VolumeMath.REMOTE_STEPS - local) < CONVERGED_THRESHOLD) {
+            SpotifyConnectServiceState.setLocalDeviceVolumeFraction(null)
+        }
+
+        if (!bootstrapped) return
+        if (SystemClock.elapsedRealtime() < guardUntilMs) {
+            // The user is pressing keys right now: the device wins for the moment, but this change
+            // is parked, not dropped -- it's reconciled once the window ends.
+            scheduleReconcile()
+            return
+        }
+        applyRemote(remote)
+    }
+
+    private fun scheduleReconcile() {
+        if (reconcileScheduled) return
+        reconcileScheduled = true
+        val wait = (guardUntilMs - SystemClock.elapsedRealtime()).coerceAtLeast(0) + RECONCILE_SLACK_MS
+        scope.launch(Dispatchers.Default) {
+            delay(wait)
+            events.trySend(Event.Reconcile)
+        }
+    }
+
+    /** Moves `STREAM_MUSIC` to what the daemon says, unless it's already there. */
+    private fun applyRemote(remote: Int) {
         val manager = audioManager ?: return
-        if (remoteMax <= 0) return
-        val deviceMax = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-        if (deviceMax <= 0) return
-        val target = ((remoteValue.toDouble() / remoteMax) * deviceMax).roundToInt().coerceIn(0, deviceMax)
-        if (target == manager.getStreamVolume(AudioManager.STREAM_MUSIC)) return
-        lastUiPushAtMs = SystemClock.elapsedRealtime()
+        val (current, max) = readStream() ?: return
+        if (VolumeMath.isInSync(current, remote, max)) return
+        val target = VolumeMath.remoteToDevice(remote, max)
         try {
             manager.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
         } catch (_: SecurityException) {
             // Some OEMs restrict STREAM_MUSIC changes under active Do Not Disturb policies.
+            return
+        }
+        // The system may have applied less than asked (safe-media-volume on headphones, OEM caps)
+        // without any broadcast -- if so, tell the daemon the truth rather than letting the two
+        // sides disagree for good.
+        val actual = manager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        if (actual != target) {
+            val corrected = VolumeMath.deviceToRemote(actual, max)
+            if (SpotifyConnectServiceState.setVolumeCommand(corrected)) {
+                lastKnownRemote = corrected
+                latestRemote = corrected
+            }
         }
     }
 
-    private fun applyToRemote(deviceValue: Int) {
-        val manager = audioManager ?: return
-        val deviceMax = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-        if (deviceMax <= 0) return
-        val (currentRemote, remoteMax) = SpotifyConnectServiceState.volume.value
-        if (remoteMax <= 0) return
-        val target = ((deviceValue.toDouble() / deviceMax) * remoteMax).roundToInt().coerceIn(0, remoteMax)
-        if (target == currentRemote) return
-        SpotifyConnectServiceState.setVolumeCommand(target)
+    /** (current index, max index), or null when the stream can't be read. */
+    private fun readStream(): Pair<Int, Int>? {
+        val manager = audioManager ?: return null
+        val max = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        if (max <= 0) return null
+        return manager.getStreamVolume(AudioManager.STREAM_MUSIC) to max
     }
 
-    private companion object {
+    internal companion object {
         const val DEBOUNCE_MS = 200L
-        const val SUPPRESS_UI_ECHO_MS = 1000L
+
+        // How long after a real device-side change the device stays authoritative.
+        const val GUARD_MS = 1500L
+        const val RECONCILE_SLACK_MS = 50L
         const val CONVERGED_THRESHOLD = 0.02f
         const val LOCAL_OVERRIDE_TIMEOUT_MS = 3000L
+        const val OUTPUT_SETTLE_MS = 600L
+        const val BOOTSTRAP_RETRY_MS = 2000L
+        const val MAX_BOOTSTRAP_ATTEMPTS = 5
+
+        /** True for outputs whose gain Android doesn't control (see [start]). */
+        fun isVolumeFixed(context: Context): Boolean =
+            context.getSystemService(AudioManager::class.java)?.isVolumeFixed == true
 
         // No public AudioManager constant exists for this pre-MediaSession, protected system
         // broadcast; it's the long-standing stable way apps observe stream volume changes made
         // outside their own process (hardware keys, other apps, AVRCP from a paired speaker).
         const val VOLUME_CHANGED_ACTION = "android.media.VOLUME_CHANGED_ACTION"
         const val EXTRA_VOLUME_STREAM_TYPE = "android.media.EXTRA_VOLUME_STREAM_TYPE"
-        const val EXTRA_VOLUME_STREAM_VALUE = "android.media.EXTRA_VOLUME_STREAM_VALUE"
     }
 }

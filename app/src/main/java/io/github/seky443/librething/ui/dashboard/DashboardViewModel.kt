@@ -214,7 +214,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     fun next() = viewModelScope.launch(Dispatchers.IO) { SpotifyConnectServiceState.next() }
     fun previous() = viewModelScope.launch(Dispatchers.IO) { SpotifyConnectServiceState.previous() }
     fun setVolume(value: Int) = viewModelScope.launch(Dispatchers.IO) {
-        SpotifyConnectServiceState.setVolumeFromUi(value, SpotifyConnectServiceState.volume.value.second)
+        SpotifyConnectServiceState.setVolumeCommand(value)
     }
     fun seek(positionMs: Long) = viewModelScope.launch(Dispatchers.IO) { SpotifyConnectServiceState.seek(positionMs) }
     fun clearLogs() = SpotifyConnectServiceState.clearLogs()

@@ -49,6 +49,7 @@ object GoLibrespotConfigWriter {
             cacheDirPath = cacheDir.absolutePath,
             androidNetInterface = resolveAndroidNetInterface(context),
             initialVolumeSteps = initialVolumeSteps,
+            externalVolume = !DeviceVolumeBridge.isVolumeFixed(context),
         )
 
         val configFile = File(configDir, "config.yml")
@@ -106,6 +107,7 @@ object GoLibrespotConfigWriter {
         cacheDirPath: String,
         androidNetInterface: AndroidNetInterface? = null,
         initialVolumeSteps: Int = VOLUME_STEPS,
+        externalVolume: Boolean = true,
     ): String {
         return buildString {
             // Always capture every level from the daemon; the Dashboard's log console
@@ -133,15 +135,19 @@ object GoLibrespotConfigWriter {
             appendLine("audio_output_pipe_format: \"s16le\"")
             appendLine("audio_output_pipe_wait_for_reader: true")
             appendLine()
-            // external_volume was tried here (to make AudioTrack/STREAM_MUSIC the single gain
-            // stage instead of the daemon also pre-multiplying PCM by volume^2 in
-            // output/driver-pipe.go) but reverted: it reroutes daemon/player.go's NEW_DEVICE
-            // connect-state handling around code that's normally always exercised, and every
-            // reconnect after switching Spotify Connect away to another device and back then
-            // hung the daemon's single event-loop goroutine dead at "put connect state because
-            // NEW_DEVICE" with no further log output -- a real connectivity break, worse than
-            // the double-attenuation this was meant to avoid. DeviceVolumeBridge still syncs
-            // STREAM_MUSIC with the daemon's volume; the curve is just steeper than ideal now.
+            // The phone's STREAM_MUSIC is the one and only gain stage: with external_volume the
+            // daemon leaves the audio untouched (output/driver-pipe.go) and just reports every
+            // volume change, which DeviceVolumeBridge mirrors onto the stream -- and vice versa,
+            // so a Bluetooth speaker's buttons, the phone's keys, the in-app slider and other
+            // Spotify clients all move the same value. Without it both scaled the same audio and
+            // the two numbers only roughly tracked each other.
+            //
+            // An older fork build hung the daemon's event loop at "put connect state because
+            // NEW_DEVICE" on reconnect under this setting, which is why it was once reverted;
+            // upstream has since moved state pushes off that loop and fixed external-volume
+            // sessions (go-librespot-termux 548e9d1). Not used when the output has fixed volume
+            // (STREAM_MUSIC changes nothing there), where the daemon has to do the scaling itself.
+            appendLine("external_volume: $externalVolume")
             appendLine("volume_steps: $VOLUME_STEPS")
             appendLine("initial_volume: ${initialVolumeSteps.coerceIn(0, VOLUME_STEPS)}")
             // daemon/player.go re-runs its NEW_DEVICE volume-init logic on *every* Connect

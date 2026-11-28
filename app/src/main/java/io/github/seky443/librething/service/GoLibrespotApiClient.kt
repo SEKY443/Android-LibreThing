@@ -275,7 +275,8 @@ class GoLibrespotApiClient(
     } else {
         post("/player/prev", """{"allow_seeking":false}""")
     }
-    fun setVolume(value: Int) = post("/player/volume", """{"volume":$value}""")
+    /** True when the daemon accepted it (it takes volume writes even with no session). */
+    fun setVolume(value: Int): Boolean = postForStatus("/player/volume", """{"volume":$value}""") in 200..299
     fun seek(positionMs: Long) = post("/player/seek", """{"position":$positionMs}""")
 
     private fun post(path: String, jsonBody: String? = null) {

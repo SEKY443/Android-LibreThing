@@ -130,4 +130,17 @@ class GoLibrespotConfigWriterTest {
         assertTrue(render(GoLibrespotConfig()).contains("device_is_group: false"))
         assertTrue(render(GoLibrespotConfig(deviceIsGroup = true)).contains("device_is_group: true"))
     }
+
+    @Test
+    fun `system volume is the only gain stage unless the output has fixed volume`() {
+        assertTrue(render(GoLibrespotConfig()).contains("external_volume: true"))
+
+        val fixed = GoLibrespotConfigWriter.renderYaml(
+            GoLibrespotConfig(),
+            pipePath = "/data/audio.pipe",
+            cacheDirPath = "/data/cache",
+            externalVolume = false,
+        )
+        assertTrue(fixed.contains("external_volume: false"))
+    }
 }
