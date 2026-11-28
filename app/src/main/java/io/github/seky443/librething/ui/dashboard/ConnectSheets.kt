@@ -204,7 +204,10 @@ private fun DeviceRow(
     onCommand: (String) -> Unit,
     onVolume: (Int) -> Unit,
 ) {
-    val canTransfer = !device.isSelf && !device.isOffline && device.canTransfer && !device.isActive
+    // Moving playback *to this device* is a transfer like any other (the daemon only rejects
+    // remote commands aimed at itself), so it is allowed even when Spotify's can_transfer flag
+    // for our own entry says otherwise.
+    val canTransfer = !device.isOffline && !device.isActive && (device.isSelf || device.canTransfer)
     val status = when {
         device.isOffline -> stringResource(R.string.devices_offline)
         device.isActive && cluster.isPlaying -> stringResource(R.string.devices_playing)
