@@ -139,6 +139,7 @@ object SpotifyConnectServiceState {
     fun resume() = apiClient?.resume()
     fun pause() = apiClient?.pause()
     fun next() = apiClient?.next()
+    fun skipTo(uri: String) = apiClient?.skipTo(uri)
     /** Whether Previous may rewind a track that's played for a few seconds instead of always going
      * back a track; kept in sync with the "Previous always skips back" setting by the service. */
     @Volatile internal var previousAllowsSeeking = true

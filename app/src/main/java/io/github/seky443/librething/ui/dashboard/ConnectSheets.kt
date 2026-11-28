@@ -71,12 +71,15 @@ fun QueueSheet(viewModel: DashboardViewModel, onDismiss: () -> Unit) {
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
         )
-        QueueContent(queue)
+        QueueContent(queue, onPlay = { entry ->
+            viewModel.skipToTrack(entry.uri)
+            onDismiss()
+        })
     }
 }
 
 @Composable
-private fun QueueContent(queue: PlayQueue?) {
+private fun QueueContent(queue: PlayQueue?, onPlay: (QueueEntry) -> Unit) {
     if (queue == null || (queue.current == null && queue.next.isEmpty() && queue.previous.isEmpty())) {
         Text(
             stringResource(R.string.queue_empty),
@@ -93,12 +96,12 @@ private fun QueueContent(queue: PlayQueue?) {
         }
         if (queue.next.isNotEmpty()) {
             item { SectionHeader(stringResource(R.string.queue_up_next)) }
-            items(queue.next) { QueueRow(it) }
+            items(queue.next) { QueueRow(it, onClick = { _ -> onPlay(it) }) }
         }
         if (queue.previous.isNotEmpty()) {
             item { SectionHeader(stringResource(R.string.queue_earlier)) }
             // Farthest first in the daemon's list; nearest-first reads more naturally here.
-            items(queue.previous.asReversed()) { QueueRow(it) }
+            items(queue.previous.asReversed()) { QueueRow(it, onClick = { _ -> onPlay(it) }) }
         }
     }
 }
@@ -114,8 +117,10 @@ private fun SectionHeader(text: String) {
 }
 
 @Composable
-private fun QueueRow(entry: QueueEntry, highlight: Boolean = false) {
+private fun QueueRow(entry: QueueEntry, highlight: Boolean = false, onClick: ((QueueEntry) -> Unit)? = null) {
     ListItem(
+        // Tapping an entry plays it; the one already playing has nothing to jump to.
+        modifier = if (onClick != null) Modifier.clickable { onClick(entry) } else Modifier,
         headlineContent = {
             Text(
                 entry.name ?: stringResource(R.string.queue_loading_title),

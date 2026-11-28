@@ -195,6 +195,14 @@ object GoLibrespotConfigWriter {
             appendLine("  address: ${quote(GoLibrespotPaths.API_HOST)}")
             appendLine("  port: ${GoLibrespotPaths.API_PORT}")
             appendLine()
+            // Without this the daemon only knows a queue entry's URI, never its title or artist:
+            // /player/queue's track metadata is filled from this cache, so the queue sheet would
+            // sit on "Loading..." forever. Off, the daemon makes no metadata request that
+            // playback itself doesn't need; on, it batch-fetches the tracks around the playback
+            // position in the background.
+            appendLine("metadata:")
+            appendLine("  enabled: true")
+            appendLine()
             appendLine("cache:")
             appendLine("  enabled: true")
             appendLine("  dir: ${quote(cacheDirPath)}")

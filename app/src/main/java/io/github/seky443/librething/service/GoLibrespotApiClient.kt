@@ -268,6 +268,10 @@ class GoLibrespotApiClient(
     fun playPause() = post("/player/playpause")
     fun next() = post("/player/next")
 
+    /** Jumps straight to [uri] -- a queued track, or one of the current context's -- instead of
+     * the next one in line. Built with the serializer since the URI comes from the network. */
+    fun skipTo(uri: String) = postJson("/player/next", buildJsonObject { put("uri", uri) })
+
     /** [allowSeeking] false always goes to the previous track; true (the daemon's default) first
      * rewinds a track that's been playing for more than a few seconds. */
     fun previous(allowSeeking: Boolean = true) = if (allowSeeking) {

@@ -132,6 +132,11 @@ class GoLibrespotConfigWriterTest {
     }
 
     @Test
+    fun `daemon metadata is enabled so the queue can show track names`() {
+        assertTrue(render(GoLibrespotConfig()).contains("metadata:\n  enabled: true"))
+    }
+
+    @Test
     fun `system volume is the only gain stage unless the output has fixed volume`() {
         assertTrue(render(GoLibrespotConfig()).contains("external_volume: true"))
 

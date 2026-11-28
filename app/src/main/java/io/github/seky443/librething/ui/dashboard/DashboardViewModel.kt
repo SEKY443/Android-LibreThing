@@ -232,6 +232,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun refreshConnectDevices() = viewModelScope.launch(Dispatchers.IO) {
         SpotifyConnectServiceState.fetchConnectDevices()?.let(SpotifyConnectServiceState::setConnectDevices)
+    fun skipToTrack(uri: String) = viewModelScope.launch(Dispatchers.IO) { SpotifyConnectServiceState.skipTo(uri) }
+
     }
 
     /** [onResult] runs on the main thread with whether Spotify accepted the move. */
