@@ -108,6 +108,16 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                 checked = appPrefs.hideFakeSleepButtonEnabled,
                 onCheckedChange = { viewModel.updateAppPreferences { p -> p.copy(hideFakeSleepButtonEnabled = it) } },
             )
+            SwitchRow(
+                title = stringResource(R.string.settings_hide_queue_button_title),
+                checked = appPrefs.hideQueueButtonEnabled,
+                onCheckedChange = { viewModel.updateAppPreferences { p -> p.copy(hideQueueButtonEnabled = it) } },
+            )
+            SwitchRow(
+                title = stringResource(R.string.settings_hide_devices_button_title),
+                checked = appPrefs.hideDevicesButtonEnabled,
+                onCheckedChange = { viewModel.updateAppPreferences { p -> p.copy(hideDevicesButtonEnabled = it) } },
+            )
             SectionLabel(stringResource(R.string.settings_volume_slider_label))
             SwitchRow(
                 title = stringResource(R.string.settings_show_volume_slider_title),

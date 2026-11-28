@@ -20,6 +20,8 @@ data class AppPreferences(
     val autoSleepNapModeEnabled: Boolean = false,
     val hideConsoleButtonEnabled: Boolean = false,
     val hideFakeSleepButtonEnabled: Boolean = false,
+    val hideQueueButtonEnabled: Boolean = false,
+    val hideDevicesButtonEnabled: Boolean = false,
     val hideIconRowInLandscapeEnabled: Boolean = true,
     val hideLastSessionLabelInLandscapeEnabled: Boolean = true,
     val landscapeStretchTransportRowEnabled: Boolean = true,

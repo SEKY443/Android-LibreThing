@@ -48,6 +48,8 @@ class SettingsRepository(private val context: Context) {
         val AUTO_SLEEP_NAP_MODE_ENABLED = booleanPreferencesKey("auto_sleep_nap_mode_enabled")
         val HIDE_CONSOLE_BUTTON_ENABLED = booleanPreferencesKey("hide_console_button_enabled")
         val HIDE_FAKE_SLEEP_BUTTON_ENABLED = booleanPreferencesKey("hide_fake_sleep_button_enabled")
+        val HIDE_QUEUE_BUTTON_ENABLED = booleanPreferencesKey("hide_queue_button_enabled")
+        val HIDE_DEVICES_BUTTON_ENABLED = booleanPreferencesKey("hide_devices_button_enabled")
         val HIDE_ICON_ROW_IN_LANDSCAPE_ENABLED = booleanPreferencesKey("hide_icon_row_in_landscape_enabled")
         val HIDE_LAST_SESSION_LABEL_IN_LANDSCAPE_ENABLED = booleanPreferencesKey("hide_last_session_label_in_landscape_enabled")
         val LANDSCAPE_STRETCH_TRANSPORT_ROW_ENABLED = booleanPreferencesKey("landscape_stretch_transport_row_enabled")
@@ -158,6 +160,8 @@ class SettingsRepository(private val context: Context) {
             autoSleepNapModeEnabled = prefs[Keys.AUTO_SLEEP_NAP_MODE_ENABLED] ?: defaults.autoSleepNapModeEnabled,
             hideConsoleButtonEnabled = prefs[Keys.HIDE_CONSOLE_BUTTON_ENABLED] ?: defaults.hideConsoleButtonEnabled,
             hideFakeSleepButtonEnabled = prefs[Keys.HIDE_FAKE_SLEEP_BUTTON_ENABLED] ?: defaults.hideFakeSleepButtonEnabled,
+            hideQueueButtonEnabled = prefs[Keys.HIDE_QUEUE_BUTTON_ENABLED] ?: defaults.hideQueueButtonEnabled,
+            hideDevicesButtonEnabled = prefs[Keys.HIDE_DEVICES_BUTTON_ENABLED] ?: defaults.hideDevicesButtonEnabled,
             hideIconRowInLandscapeEnabled = prefs[Keys.HIDE_ICON_ROW_IN_LANDSCAPE_ENABLED] ?: defaults.hideIconRowInLandscapeEnabled,
             hideLastSessionLabelInLandscapeEnabled = prefs[Keys.HIDE_LAST_SESSION_LABEL_IN_LANDSCAPE_ENABLED] ?: defaults.hideLastSessionLabelInLandscapeEnabled,
             landscapeStretchTransportRowEnabled = prefs[Keys.LANDSCAPE_STRETCH_TRANSPORT_ROW_ENABLED] ?: defaults.landscapeStretchTransportRowEnabled,
@@ -240,6 +244,8 @@ class SettingsRepository(private val context: Context) {
                 autoSleepNapModeEnabled = prefs[Keys.AUTO_SLEEP_NAP_MODE_ENABLED] ?: AppPreferences().autoSleepNapModeEnabled,
                 hideConsoleButtonEnabled = prefs[Keys.HIDE_CONSOLE_BUTTON_ENABLED] ?: AppPreferences().hideConsoleButtonEnabled,
                 hideFakeSleepButtonEnabled = prefs[Keys.HIDE_FAKE_SLEEP_BUTTON_ENABLED] ?: AppPreferences().hideFakeSleepButtonEnabled,
+                hideQueueButtonEnabled = prefs[Keys.HIDE_QUEUE_BUTTON_ENABLED] ?: AppPreferences().hideQueueButtonEnabled,
+                hideDevicesButtonEnabled = prefs[Keys.HIDE_DEVICES_BUTTON_ENABLED] ?: AppPreferences().hideDevicesButtonEnabled,
                 hideIconRowInLandscapeEnabled = prefs[Keys.HIDE_ICON_ROW_IN_LANDSCAPE_ENABLED] ?: AppPreferences().hideIconRowInLandscapeEnabled,
                 hideLastSessionLabelInLandscapeEnabled = prefs[Keys.HIDE_LAST_SESSION_LABEL_IN_LANDSCAPE_ENABLED] ?: AppPreferences().hideLastSessionLabelInLandscapeEnabled,
                 landscapeStretchTransportRowEnabled = prefs[Keys.LANDSCAPE_STRETCH_TRANSPORT_ROW_ENABLED] ?: AppPreferences().landscapeStretchTransportRowEnabled,
@@ -280,6 +286,8 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.AUTO_SLEEP_NAP_MODE_ENABLED] = updated.autoSleepNapModeEnabled
             prefs[Keys.HIDE_CONSOLE_BUTTON_ENABLED] = updated.hideConsoleButtonEnabled
             prefs[Keys.HIDE_FAKE_SLEEP_BUTTON_ENABLED] = updated.hideFakeSleepButtonEnabled
+            prefs[Keys.HIDE_QUEUE_BUTTON_ENABLED] = updated.hideQueueButtonEnabled
+            prefs[Keys.HIDE_DEVICES_BUTTON_ENABLED] = updated.hideDevicesButtonEnabled
             prefs[Keys.HIDE_ICON_ROW_IN_LANDSCAPE_ENABLED] = updated.hideIconRowInLandscapeEnabled
             prefs[Keys.HIDE_LAST_SESSION_LABEL_IN_LANDSCAPE_ENABLED] = updated.hideLastSessionLabelInLandscapeEnabled
             prefs[Keys.LANDSCAPE_STRETCH_TRANSPORT_ROW_ENABLED] = updated.landscapeStretchTransportRowEnabled

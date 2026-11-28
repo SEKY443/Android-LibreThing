@@ -84,6 +84,8 @@
     <string name="settings_icon_row_label">Icon row</string>
     <string name="settings_hide_console_button_title">Hide console button</string>
     <string name="settings_hide_fake_sleep_button_title">Hide fake sleep button</string>
+    <string name="settings_hide_queue_button_title">Hide play queue button</string>
+    <string name="settings_hide_devices_button_title">Hide Connect devices button</string>
     <string name="settings_volume_slider_label">Volume slider</string>
     <string name="settings_show_volume_slider_title">Show volume slider</string>
     <string name="settings_mask_track_transition_flash_title">Hide flash between tracks</string>

@@ -97,6 +97,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     val hideFakeSleepButtonEnabled: StateFlow<Boolean> = settingsRepository.appPreferences
         .map { it.hideFakeSleepButtonEnabled }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val hideQueueButtonEnabled: StateFlow<Boolean> = settingsRepository.appPreferences
+        .map { it.hideQueueButtonEnabled }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val hideDevicesButtonEnabled: StateFlow<Boolean> = settingsRepository.appPreferences
+        .map { it.hideDevicesButtonEnabled }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
     val hideIconRowInLandscapeEnabled: StateFlow<Boolean> = settingsRepository.appPreferences
         .map { it.hideIconRowInLandscapeEnabled }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -226,14 +232,14 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         if (observed) refreshQueue()
     }
 
+    fun skipToTrack(uri: String) = viewModelScope.launch(Dispatchers.IO) { SpotifyConnectServiceState.skipTo(uri) }
+
     fun refreshQueue() = viewModelScope.launch(Dispatchers.IO) {
         SpotifyConnectServiceState.fetchQueue()?.let(SpotifyConnectServiceState::setQueue)
     }
 
     fun refreshConnectDevices() = viewModelScope.launch(Dispatchers.IO) {
         SpotifyConnectServiceState.fetchConnectDevices()?.let(SpotifyConnectServiceState::setConnectDevices)
-    fun skipToTrack(uri: String) = viewModelScope.launch(Dispatchers.IO) { SpotifyConnectServiceState.skipTo(uri) }
-
     }
 
     /** [onResult] runs on the main thread with whether Spotify accepted the move. */

@@ -374,6 +374,8 @@ fun SimpleDashboardScreen(
     val landscapeLeftAlignTrackInfoEnabled by viewModel.landscapeLeftAlignTrackInfoEnabled.collectAsState()
     val hideConsoleButtonEnabled by viewModel.hideConsoleButtonEnabled.collectAsState()
     val hideFakeSleepButtonEnabled by viewModel.hideFakeSleepButtonEnabled.collectAsState()
+    val hideQueueButtonEnabled by viewModel.hideQueueButtonEnabled.collectAsState()
+    val hideDevicesButtonEnabled by viewModel.hideDevicesButtonEnabled.collectAsState()
     val hideIconRowInLandscapeEnabled by viewModel.hideIconRowInLandscapeEnabled.collectAsState()
     val hideLastSessionLabelInLandscapeEnabled by viewModel.hideLastSessionLabelInLandscapeEnabled.collectAsState()
     val landscapeStretchTransportRowEnabled by viewModel.landscapeStretchTransportRowEnabled.collectAsState()
@@ -686,6 +688,8 @@ fun SimpleDashboardScreen(
                         isLandscape = true,
                         hideConsoleButtonEnabled = hideConsoleButtonEnabled,
                         hideFakeSleepButtonEnabled = hideFakeSleepButtonEnabled,
+                        hideQueueButtonEnabled = hideQueueButtonEnabled,
+                        hideDevicesButtonEnabled = hideDevicesButtonEnabled,
                         hideIconRowInLandscapeEnabled = hideIconRowInLandscapeEnabled,
                         landscapeStretchTransportRowEnabled = landscapeStretchTransportRowEnabled,
                     )
@@ -760,6 +764,8 @@ fun SimpleDashboardScreen(
                 onVolumeChange = viewModel::setVolume,
                 hideConsoleButtonEnabled = hideConsoleButtonEnabled,
                 hideFakeSleepButtonEnabled = hideFakeSleepButtonEnabled,
+                hideQueueButtonEnabled = hideQueueButtonEnabled,
+                hideDevicesButtonEnabled = hideDevicesButtonEnabled,
             )
         }
         }
@@ -1271,6 +1277,8 @@ private fun ColumnScope.NowPlayingInfoAndControls(
     isLandscape: Boolean = false,
     hideConsoleButtonEnabled: Boolean = false,
     hideFakeSleepButtonEnabled: Boolean = false,
+    hideQueueButtonEnabled: Boolean = false,
+    hideDevicesButtonEnabled: Boolean = false,
     hideIconRowInLandscapeEnabled: Boolean = false,
     landscapeStretchTransportRowEnabled: Boolean = false,
 ) {
@@ -1386,19 +1394,23 @@ private fun ColumnScope.NowPlayingInfoAndControls(
                 }
                 // Both need a live session behind them, so they only appear once the server runs;
                 // each opens a sheet over the dashboard rather than another screen.
-                CornerIconButton(
-                    icon = Icons.Filled.QueueMusic,
-                    contentDescription = stringResource(R.string.content_desc_queue),
-                    contentColor = MaterialTheme.colorScheme.onSurface,
-                    enabled = hasTrack,
-                    onClick = onOpenQueue,
-                )
-                CornerIconButton(
-                    icon = Icons.Filled.Devices,
-                    contentDescription = stringResource(R.string.content_desc_connect_devices),
-                    contentColor = MaterialTheme.colorScheme.onSurface,
-                    onClick = onOpenDevices,
-                )
+                if (!hideQueueButtonEnabled) {
+                    CornerIconButton(
+                        icon = Icons.Filled.QueueMusic,
+                        contentDescription = stringResource(R.string.content_desc_queue),
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        enabled = hasTrack,
+                        onClick = onOpenQueue,
+                    )
+                }
+                if (!hideDevicesButtonEnabled) {
+                    CornerIconButton(
+                        icon = Icons.Filled.Devices,
+                        contentDescription = stringResource(R.string.content_desc_connect_devices),
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        onClick = onOpenDevices,
+                    )
+                }
                 if (!hideFakeSleepButtonEnabled) {
                     CornerIconButton(
                         icon = Icons.Filled.Bedtime,
